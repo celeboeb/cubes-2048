@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v3-relative-touch-bounce-calm">
+<meta name="cubes-build" content="v4-merge-momentum-center-spawn">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -71,7 +71,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 .card h3{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;margin:16px 2px 8px}
 .card h3 small{text-transform:none;letter-spacing:0;font-weight:500;opacity:.8}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-#ctrlChips .chip,#gradChips .chip{justify-content:center;font-size:13px}
+#ctrlChips .chip,#gradChips .chip,#spawnChips .chip{justify-content:center;font-size:13px}
 #gradChips{margin-bottom:8px}#gradChips .chip{flex:1 1 28%}
 .sens{display:flex;align-items:center;gap:10px;margin:12px 2px 0;font-size:15px;transition:opacity .2s}
 .sens.off{opacity:.35;pointer-events:none}
@@ -125,6 +125,10 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <div class="chips" id="ctrlChips">
     <button class="chip" data-ctrl="rel">Относительно пальца</button>
     <button class="chip" data-ctrl="abs">Под палец</button>
+  </div>
+  <div class="chips" id="spawnChips" style="margin-top:10px">
+    <button class="chip" data-spawn="center">Новый кубик: по центру</button>
+    <button class="chip" data-spawn="last">Там же, где прошлый</button>
   </div>
   <div class="sens" id="sensRow"><span>Чувствительность</span><input type="range" id="sens" min="0.7" max="2" step="0.1"><b id="sensVal">1.0×</b></div>
   <h3>Градиент</h3>
@@ -258,7 +262,7 @@ var dirty = false, lastSave = 0;
 var nowMs = 0;
 var prefs = lsGet(PREF,{});
 if (prefs.sound==null) prefs.sound=true; if (prefs.guide==null) prefs.guide=true;
-if (!PALETTES_OK(prefs.palette)) prefs.palette="classic"; if (!prefs.custom) prefs.custom={}; if (!prefs.theme) prefs.theme="night"; if (prefs.control!=="abs") prefs.control="rel"; if (["off","soft","vol"].indexOf(prefs.grad)<0) prefs.grad="soft"; if (!(prefs.sens>=0.7 && prefs.sens<=2)) prefs.sens=1;
+if (!PALETTES_OK(prefs.palette)) prefs.palette="classic"; if (!prefs.custom) prefs.custom={}; if (!prefs.theme) prefs.theme="night"; if (prefs.control!=="abs") prefs.control="rel"; if (["off","soft","vol"].indexOf(prefs.grad)<0) prefs.grad="soft"; if (prefs.spawn!=="last") prefs.spawn="center"; if (!(prefs.sens>=0.7 && prefs.sens<=2)) prefs.sens=1;
 function PALETTES_OK(k){ return ["classic","calm","nordic","dusk","pastel","neon","mono","dark"].indexOf(k)>=0; }
 var moves = 0;
 var tutorialAlpha = 1;
@@ -308,11 +312,14 @@ function randomVal(){
 }
 function spawnHeld(){
   held = {val: nextVal, born: nowMs};
+  // new cube appears at the top centre (default). If a finger is still down in relative mode, the drag simply
+  // continues from the centre: we track finger deltas (lastFx), so nothing jumps.
+  if (prefs.spawn !== "last") aimX = W/2;
   nextVal = randomVal();
 }
 
 /* ---------- merging ---------- */
-var pendingMerges = [];
+var pendingMerges = [], lastMerge = null;
 function onCollide(ev){
   var pairs = ev.pairs;
   for (var i=0;i<pairs.length;i++){
@@ -358,11 +365,20 @@ function processMerges(){
     var nv = a.val*2;
     ghosts.push({val:other.val, x:other.position.x, y:other.position.y, a:other.angle,
                  tx:keep.position.x, ty:keep.position.y, ta:keep.angle, t:0});
-    var x=keep.position.x, y=keep.position.y, ang=keep.angle;
-    var v=keep.velocity;
+    // momentum: use pre-contact velocities (cached before the physics step) of both cubes; equal masses -> average
+    var va = keep.pv || keep.velocity, vb = other.pv || other.velocity;
+    var mvx = (va.x + vb.x) / 2, mvy = (va.y + vb.y) / 2;
+    // the hop follows the impact: horizontal part along the incoming cube's approach direction (relative to the survivor)
+    var relx = vb.x - va.x;
+    var hx = clamp(relx * 0.35, -1.6, 1.6);
+    var vx = clamp(mvx * 0.6 + hx, -2.2, 2.2);
+    // spawn slightly shifted toward the direction of travel (contact pushes the result along)
+    var x = clamp(keep.position.x + clamp(vx * 4, -S*0.15, S*0.15), S/2 + 1, W - S/2 - 1);
+    var y = keep.position.y, ang = keep.angle;
     removeCube(a); removeCube(b);
-    var n = addCube(nv, x, y, ang, v.x*0.3, Math.min(v.y,0) - 3.4, 0);
+    var n = addCube(nv, x, y, ang, vx, Math.min(mvy, 0) * 0.5 - 3.4, clamp(vx * 0.012, -0.03, 0.03));  // subtle roll in the travel direction
     n.pop = 1; n.popT = 0; n.touched = true;
+    lastMerge = {v:nv, vx:vx, x:x, keepX:keep.position.x, otherX:other.position.x, relx:relx};
     // gentle nudge to neighbours
     for (var j=0;j<cubes.length;j++){
       var c=cubes[j]; if (c===n) continue;
@@ -664,6 +680,7 @@ function damp(){
 function tick(dtMs){
   // physics with fixed step
   damp();
+  for (var pi=0; pi<cubes.length; pi++){ var cb=cubes[pi]; cb.pv = {x:cb.velocity.x, y:cb.velocity.y}; }
   Engine.update(engine, STEP);
   for (var i=0;i<pendingBounces.length;i++){
     var pb=pendingBounces[i], tb=pb[0], ob=pb[1];
@@ -830,6 +847,10 @@ function syncCtrl(){
   $("sens").value = prefs.sens; $("sensVal").textContent = (+prefs.sens).toFixed(1)+"×";
   $("sensRow").classList.toggle("off", prefs.control==="abs");
 }
+function syncSpawn(){ var ss=document.querySelectorAll("#spawnChips .chip"); for (var i=0;i<ss.length;i++) ss[i].classList.toggle("on", ss[i].dataset.spawn===prefs.spawn); }
+(function(){ var ss=document.querySelectorAll("#spawnChips .chip");
+  for (var i=0;i<ss.length;i++) ss[i].onclick=function(){ prefs.spawn=this.dataset.spawn; lsSet(PREF,prefs); syncSpawn(); };
+})();
 function syncGrad(){ var gs=document.querySelectorAll("#gradChips .chip"); for (var i=0;i<gs.length;i++) gs[i].classList.toggle("on", gs[i].dataset.grad===prefs.grad); }
 (function(){ var gs=document.querySelectorAll("#gradChips .chip");
   for (var i=0;i<gs.length;i++) gs[i].onclick=function(){ prefs.grad=this.dataset.grad; sprites={}; lsSet(PREF,prefs); syncGrad(); };
@@ -838,7 +859,7 @@ function syncGrad(){ var gs=document.querySelectorAll("#gradChips .chip"); for (
   for (var i=0;i<cs.length;i++) cs[i].onclick=function(){ prefs.control=this.dataset.ctrl; lsSet(PREF,prefs); syncCtrl(); };
   $("sens").oninput=function(){ prefs.sens=Math.round(+this.value*10)/10; lsSet(PREF,prefs); syncCtrl(); };
 })();
-function syncPrefs(){ syncCtrl(); syncGrad(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); }
+function syncPrefs(){ syncCtrl(); syncGrad(); syncSpawn(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); }
 $("swSound").onclick = function(){ prefs.sound=!prefs.sound; lsSet(PREF,prefs); syncPrefs(); audioUnlock(); };
 $("swGuide").onclick = function(){ prefs.guide=!prefs.guide; lsSet(PREF,prefs); syncPrefs(); };
 
@@ -910,6 +931,11 @@ window.__cubes = {
   aimScreenX: function(){ var r=cv.getBoundingClientRect(); return r.left + offX + clampAim(aimX)*scale; },
   aimWorld: function(){ return aimX; },
   setBounce: function(v){ BOUNCE=v; },
+  launch: function(v,x01,yFromBottom,vx,vy){ var b=addCube(v, clampAim(x01*W), H - S/2 - (yFromBottom||0)*S, 0, vx||0, vy||0, 0); b.touched=true; b.born=nowMs-1000; return true; },
+  lastMerge: function(){ return lastMerge; },
+  setSpawn: function(m){ prefs.spawn=m; lsSet(PREF,prefs); },
+  heldVal: function(){ return held ? held.val : null; },
+  clearMerge: function(){ lastMerge = null; },
   setGrad: function(g){ prefs.grad=g; sprites={}; lsSet(PREF,prefs); },
   aimLimits: function(){ var r=cv.getBoundingClientRect(); return [r.left+offX+clampAim(-1e9)*scale, r.left+offX+clampAim(1e9)*scale]; },
   setControl: function(c,s){ prefs.control=c; if(s) prefs.sens=s; lsSet(PREF,prefs); },
