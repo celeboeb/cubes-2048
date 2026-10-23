@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
+<meta name="cubes-build" content="v3-relative-touch-bounce-calm">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -70,6 +71,12 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 .card h3{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;margin:16px 2px 8px}
 .card h3 small{text-transform:none;letter-spacing:0;font-weight:500;opacity:.8}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
+#ctrlChips .chip,#gradChips .chip{justify-content:center;font-size:13px}
+#gradChips{margin-bottom:8px}#gradChips .chip{flex:1 1 28%}
+.sens{display:flex;align-items:center;gap:10px;margin:12px 2px 0;font-size:15px;transition:opacity .2s}
+.sens.off{opacity:.35;pointer-events:none}
+.sens input{flex:1;min-width:0;accent-color:#8c7cff;touch-action:manipulation;height:28px}
+.sens b{min-width:46px;flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums}
 .chip{flex:1 1 calc(50% - 8px);display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:14px;border:2px solid transparent;
   background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .chip.on{border-color:#fff;background:rgba(255,255,255,.12)}
@@ -114,6 +121,18 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <p class="rules">Ведите пальцем влево-вправо, чтобы прицелиться, и отпустите — кубик упадёт. Одинаковые кубики при касании сливаются в один вдвое больше. Слияния подряд дают комбо. Если кубики останутся выше пунктирной линии — игра окончена.</p>
   <div class="toggle"><span>Звук</span><div class="sw" id="swSound"></div></div>
   <div class="toggle"><span>Подсказка-прицел</span><div class="sw" id="swGuide"></div></div>
+  <h3>Управление</h3>
+  <div class="chips" id="ctrlChips">
+    <button class="chip" data-ctrl="rel">Относительно пальца</button>
+    <button class="chip" data-ctrl="abs">Под палец</button>
+  </div>
+  <div class="sens" id="sensRow"><span>Чувствительность</span><input type="range" id="sens" min="0.7" max="2" step="0.1"><b id="sensVal">1.0×</b></div>
+  <h3>Градиент</h3>
+  <div class="chips" id="gradChips">
+    <button class="chip" data-grad="off">Выкл</button>
+    <button class="chip" data-grad="soft">Лёгкий</button>
+    <button class="chip" data-grad="vol">Объёмный</button>
+  </div>
   <h3>Цвета кубиков</h3>
   <div class="chips" id="palChips"></div>
   <h3>Свой цвет для числа <small>— нажмите на кубик</small></h3>
@@ -154,6 +173,9 @@ var H, LINE_Y, SPAWN_Y;
   LINE_Y = Math.round(H - PLAY_DEPTH);
   SPAWN_Y = Math.round(LINE_Y - S*1.5);
 })();
+var BOUNCE = 0.55;           // landing rebound factor (hop velocity = impact speed * BOUNCE, capped)
+var HOP_MAX = 2.3;           // ~8-9 px (≈14% of a cube) first hop
+var pendingBounces = [];
 var STEP = 1000/120;        // fixed physics step (ms)
 var LOSE_TIME = 2.0;        // seconds above line before game over
 var DROP_COOLDOWN = 420;    // ms before next cube can be dropped
@@ -173,12 +195,15 @@ function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){}
 function easeOutBack(t){ var c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
 
 /* ---------- palette (own) ---------- */
-var PALETTES = {
-  classic:{name:"Классика", c:["#4fc3f7","#4dd691","#ffc83a","#ff8c42","#ff5d73","#e056fd","#8c7cff","#3a86ff","#00c2a8","#ff3d8b","#ffb703","#9b5de5","#f15bb5","#00bbf9","#2ee6c6","#ff6b35"]},
-  pastel: {name:"Пастель",  c:["#a8d8f0","#b5e8c8","#fbe3a1","#fcc9a5","#f8b4c0","#e2bdf5","#c6c0ff","#a9c4ff","#9fe3d6","#f7a8c8","#ffd59e","#cdb4f0","#f5b5d8","#9ed8f0","#b9f0e2","#ffbfa3"]},
-  neon:   {name:"Неон",     c:["#00e5ff","#39ff14","#fff200","#ff9100","#ff1744","#ff00e6","#a100ff","#2979ff","#00ffc3","#ff007f","#ffd500","#d500f9","#ff4081","#00b0ff","#76ff03","#ff3d00"]},
-  mono:   {name:"Монохром", c:["#dfe3ea","#c9ced8","#b3b9c6","#9ca4b4","#8690a2","#717b90","#5f697e","#4f586c","#41495b","#353c4c","#2b313f","#232834","#1d212b","#181b23","#14161d","#101218"]},
-  dark:   {name:"Тёмная",   c:["#1f6f8b","#1e7d55","#9a7b1c","#a4521f","#9b2c3f","#7b2f8f","#4b3f9c","#24508f","#126d63","#8f1f50","#8a6a10","#5a2f86","#88306a","#16648a","#18786a","#8f3a1a"]}
+var PALETTES = {   // neighbouring values always get clearly different hues
+  classic:{name:"Классика", c:["#4fc3f7","#ff8c42","#4dd691","#e056fd","#ffc83a","#3a86ff","#ff5d73","#00c2a8","#8c7cff","#ffb703","#ff3d8b","#2ee6c6","#9b5de5","#ff6b35","#00bbf9","#f15bb5"]},
+  calm:   {name:"Спокойная", c:["#8fa98b","#7d97b3","#c47a5a","#5f8f8c","#a88aa6","#d8c49a","#6f7f99","#c48b8f","#8b8f5a","#9a94b8","#c9a05a","#6f8a6a","#b0705e","#7e5f78","#d9a07e","#6c9aa0"]},
+  nordic: {name:"Скандинавская", c:["#a7c4bc","#e3c9a8","#9fb3c8","#d9a5a0","#b8c49a","#c7b8d6","#e0b872","#8eaab0","#d4a088","#a3b18a","#b0a4c8","#c9b18c","#7f9cb0","#e2b6a0","#96b5a2","#b59e8c"]},
+  dusk:   {name:"Сумерки", c:["#4f6d8a","#8a5a6e","#5e7d63","#9a7550","#6a5d8c","#4f7f7f","#a0645a","#5d6b8f","#7d8a55","#8a6a8f","#b08a52","#476d6a","#94586a","#5a7aa0","#7a6550","#6d8a7a"]},
+  pastel: {name:"Пастель",  c:["#a8d8f0","#fcc9a5","#b5e8c8","#e2bdf5","#fbe3a1","#a9c4ff","#f8b4c0","#9fe3d6","#c6c0ff","#ffd59e","#f7a8c8","#b9f0e2","#cdb4f0","#ffbfa3","#9ed8f0","#f5b5d8"]},
+  neon:   {name:"Неон",     c:["#00e5ff","#ff00e6","#39ff14","#ff1744","#2979ff","#fff200","#a100ff","#ff9100","#00ffc3","#ff007f","#00b0ff","#ffd500","#d500f9","#ff3d00","#76ff03","#ff4081"]},
+  mono:   {name:"Монохром", c:["#e4e7ec","#6b7385","#c3c8d2","#4a5162","#a3aab8","#353b49","#d3d7df","#5a6274","#b3b9c5","#3f4555","#929aa9","#2b303c","#c9ced8","#7b8394","#20242e","#aab1bd"]},
+  dark:   {name:"Тёмная",   c:["#1f6f8b","#a4521f","#1e7d55","#7b2f8f","#9a7b1c","#24508f","#9b2c3f","#126d63","#4b3f9c","#8a6a10","#8f1f50","#18786a","#5a2f86","#8f3a1a","#16648a","#88306a"]}
 };
 var THEMES = {
   night:   {name:"Ночь",    a:"#3a2f66", b:"#2b2448", c:"#1b1830"},
@@ -196,6 +221,13 @@ function colorFor(exp){
   var cu = prefs.custom && prefs.custom[exp];
   return cu || paletteColor(exp);
 }
+function relLum(col){
+  var c=document.createElement("canvas").getContext("2d"); c.fillStyle=col; var h=c.fillStyle;
+  if (h[0]!=="#") return 0.2;
+  function ch(x){ x/=255; return x<=0.03928 ? x/12.92 : Math.pow((x+0.055)/1.055,2.4); }
+  return 0.2126*ch(parseInt(h.substr(1,2),16))+0.7152*ch(parseInt(h.substr(3,2),16))+0.0722*ch(parseInt(h.substr(5,2),16));
+}
+function darkText(col){ var L=relLum(col); return (L+0.05)/0.074 > 1.05/(L+0.05) * 1.15; }   // pick the higher-contrast text (slight bias to white)
 function luminance(col){
   var c=document.createElement("canvas").getContext("2d"); c.fillStyle=col; var h=c.fillStyle;
   if (h[0]!=="#") return 0.5;
@@ -226,8 +258,8 @@ var dirty = false, lastSave = 0;
 var nowMs = 0;
 var prefs = lsGet(PREF,{});
 if (prefs.sound==null) prefs.sound=true; if (prefs.guide==null) prefs.guide=true;
-if (!PALETTES_OK(prefs.palette)) prefs.palette="classic"; if (!prefs.custom) prefs.custom={}; if (!prefs.theme) prefs.theme="night";
-function PALETTES_OK(k){ return k==="classic"||k==="pastel"||k==="neon"||k==="mono"||k==="dark"; }
+if (!PALETTES_OK(prefs.palette)) prefs.palette="classic"; if (!prefs.custom) prefs.custom={}; if (!prefs.theme) prefs.theme="night"; if (prefs.control!=="abs") prefs.control="rel"; if (["off","soft","vol"].indexOf(prefs.grad)<0) prefs.grad="soft"; if (!(prefs.sens>=0.7 && prefs.sens<=2)) prefs.sens=1;
+function PALETTES_OK(k){ return ["classic","calm","nordic","dusk","pastel","neon","mono","dark"].indexOf(k)>=0; }
 var moves = 0;
 var tutorialAlpha = 1;
 var uid = 1;
@@ -249,7 +281,7 @@ function makeEngine(){
 function addCube(val, x, y, angle, vx, vy, av){
   var b = Bodies.rectangle(x, y, S-1, S-1, {
     chamfer:{radius:5}, friction:0.45, frictionStatic:0.6, frictionAir:0.018,
-    restitution:0.02, density:0.0016, slop:0.05, label:"cube"
+    restitution:0.08, density:0.0016, slop:0.05, label:"cube"
   });
   Body.setInertia(b, b.inertia * 1.5);   // a bit harder to spin -> less tumbling, but still tips off edges
   b.val = val; b.born = nowMs; b.uid = uid++; b.pop = 0; b.merging = false; b.touched = false;
@@ -285,6 +317,27 @@ function onCollide(ev){
   var pairs = ev.pairs;
   for (var i=0;i<pairs.length;i++){
     var a=pairs[i].bodyA, b=pairs[i].bodyB;
+    if (ev.name==="collisionStart"){
+      var col=pairs[i].collision, nrm=col.normal;
+      var vn=Math.abs((a.velocity.x-b.velocity.x)*nrm.x + (a.velocity.y-b.velocity.y)*nrm.y);
+      if (vn > 2.2){
+        var amp = Math.min(0.13, (vn-2.2)*0.03);
+        if (a.label==="cube" && (!a.sqA || a.sqT>0.12)){ a.sqA=amp; a.sqT=0; }
+        if (b.label==="cube" && (!b.sqA || b.sqT>0.12)){ b.sqA=amp*0.6; b.sqT=0; }
+        if (vn > 3.5) sfxLand(vn);
+      }
+      // controlled landing hop: the upper cube rebounds a little (matter's soft contacts eat restitution)
+      if (vn > 0.7 && Math.abs(nrm.y) > 0.7){
+        var top = a.label==="cube" && (b.label!=="cube" || a.position.y < b.position.y) ? a : (b.label==="cube" ? b : null);
+        var other = top===a ? b : a;
+        if (top && top.velocity.y - (other.isStatic?0:other.velocity.y) > 0.6){
+          var hop = 0;
+          if (vn > 2.2){ hop = Math.min(vn*BOUNCE, HOP_MAX); top.hopN = 1; top.hopV = hop; top.hopAt = nowMs; }   // first hop
+          else if (top.hopN === 1 && nowMs - top.hopAt < 600){ hop = top.hopV*0.5; top.hopN = 2; }            // second, smaller hop
+          if (hop > 0) pendingBounces.push([top, other, hop]);
+        }
+      }
+    }
     if (a.label==="cube") a.touched = true;
     if (b.label==="cube") b.touched = true;
     if (a.label!=="cube"||b.label!=="cube") continue;
@@ -308,8 +361,18 @@ function processMerges(){
     var x=keep.position.x, y=keep.position.y, ang=keep.angle;
     var v=keep.velocity;
     removeCube(a); removeCube(b);
-    var n = addCube(nv, x, y, ang, v.x*0.3, Math.min(v.y,0) - 2.6, 0);
-    n.pop = 1; n.touched = true;
+    var n = addCube(nv, x, y, ang, v.x*0.3, Math.min(v.y,0) - 3.4, 0);
+    n.pop = 1; n.popT = 0; n.touched = true;
+    // gentle nudge to neighbours
+    for (var j=0;j<cubes.length;j++){
+      var c=cubes[j]; if (c===n) continue;
+      var dx=c.position.x-x, dy=c.position.y-y, d=Math.sqrt(dx*dx+dy*dy);
+      if (d < S*1.7 && d > 1){
+        var f=(1 - d/(S*1.7))*1.1;
+        Body.setVelocity(c, {x:c.velocity.x + dx/d*f, y:c.velocity.y + Math.min(0, dy/d*f) - f*0.6});
+        c.sqA = 0.05*f; c.sqT = 0;
+      }
+    }
     score += nv;
     if (nowMs - comboT < 900) combo++; else combo = 1;
     comboT = nowMs;
@@ -436,17 +499,24 @@ function sprite(val){
   g.save(); g.shadowColor= neon ? col : "rgba(0,0,0,.45)"; g.shadowBlur=(neon?13:10)*k; g.shadowOffsetY=(neon?0:4)*k;
   rr(0,0,sz,sz,r); g.fillStyle=shade(col,-0.35); g.fill(); g.restore();
   // body bevel (darker bottom edge)
-  rr(0,0,sz,sz,r); g.fillStyle=shade(col,-0.32); g.fill();
+  rr(0,0,sz,sz,r); g.fillStyle=shade(col, prefs.grad==='vol' ? -0.32 : -0.22); g.fill();
   // face
-  var gr = g.createLinearGradient(0,0,sz*0.6,sz);
-  gr.addColorStop(0, shade(col,0.28)); gr.addColorStop(0.55, col); gr.addColorStop(1, shade(col,-0.12));
-  rr(0,0,sz,sz-4*k,r); g.fillStyle=gr; g.fill();
-  // gloss
-  g.save(); rr(0,0,sz,sz-4*k,r); g.clip();
-  var gl = g.createLinearGradient(0,0,0,sz*0.5);
-  gl.addColorStop(0,"rgba(255,255,255,.38)"); gl.addColorStop(1,"rgba(255,255,255,0)");
-  g.fillStyle=gl; g.fillRect(0,0,sz,sz*0.5);
-  g.strokeStyle="rgba(255,255,255,.35)"; g.lineWidth=2*k; rr(1*k,1*k,sz-2*k,sz-6*k,r*0.9); g.stroke();
+  var GS = {off:{hi:0,lo:0,gloss:0,rim:0.10,lip:3}, soft:{hi:0.07,lo:-0.04,gloss:0.07,rim:0.16,lip:3.5}, vol:{hi:0.28,lo:-0.12,gloss:0.38,rim:0.35,lip:4}}[prefs.grad] || {hi:0.07,lo:-0.04,gloss:0.07,rim:0.16,lip:3.5};
+  var lip = GS.lip*k;
+  if (GS.hi || GS.lo){
+    var gr = g.createLinearGradient(0,0,sz*0.6,sz);
+    gr.addColorStop(0, shade(col,GS.hi)); gr.addColorStop(0.55, col); gr.addColorStop(1, shade(col,GS.lo));
+    g.fillStyle=gr;
+  } else g.fillStyle=col;
+  rr(0,0,sz,sz-lip,r); g.fill();
+  // gloss / highlight
+  g.save(); rr(0,0,sz,sz-lip,r); g.clip();
+  if (GS.gloss){
+    var gl = g.createLinearGradient(0,0,0,sz*0.5);
+    gl.addColorStop(0,"rgba(255,255,255,"+GS.gloss+")"); gl.addColorStop(1,"rgba(255,255,255,0)");
+    g.fillStyle=gl; g.fillRect(0,0,sz,sz*0.5);
+  }
+  g.strokeStyle="rgba(255,255,255,"+GS.rim+")"; g.lineWidth=(prefs.grad==="vol"?2:1.5)*k; rr(1*k,1*k,sz-2*k,sz-lip-2*k,r*0.9); g.stroke();
   g.restore();
   if (exp >= 11){ // golden rim for 2K+
     g.strokeStyle="rgba(255,240,180,.9)"; g.lineWidth=2.5*k; rr(2.5*k,2.5*k,sz-5*k,sz-9*k,r*0.8); g.stroke();
@@ -455,17 +525,18 @@ function sprite(val){
   var t = fmt(val), fs = t.length<=2 ? 0.46 : t.length===3 ? 0.37 : 0.30;
   g.font = "900 " + Math.round(S*fs*k) + "px ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif";
   g.textAlign="center"; g.textBaseline="middle";
-  var light = luminance(col) > 0.72;
+  var light = darkText(col);
   g.fillStyle= light ? "rgba(255,255,255,.5)" : "rgba(0,0,0,.28)"; g.fillText(t, sz/2, sz/2 - 2*k + (light?1.5:2.5)*k);
   g.fillStyle= light ? "#2a2540" : "#fff"; g.fillText(t, sz/2, sz/2 - 2*k);
   sp = {c:c, pad:pad, sz:sz}; sprites[val] = sp; return sp;
 }
-function drawCube(val, x, y, ang, sc, alpha){
+function drawCube(val, x, y, ang, sc, alpha, scy){
   var sp = sprite(val), k = scale*dpr;
   ctx.save();
   ctx.translate((offX + x*scale)*dpr, (offY + y*scale)*dpr);
   if (ang) ctx.rotate(ang);
-  if (sc !== 1) ctx.scale(sc, sc);
+  if (scy === undefined) scy = sc;
+  if (sc !== 1 || scy !== 1){ ctx.translate(0, S*scale*dpr*0.5*(1-scy)); ctx.scale(sc, scy); }   // anchored near the bottom face
   if (alpha !== 1) ctx.globalAlpha = alpha;
   var half = sp.c.width/2;
   ctx.drawImage(sp.c, -half, -half);
@@ -529,8 +600,11 @@ function render(){
   // cubes
   for (var i=0;i<cubes.length;i++){
     var b=cubes[i], sc=1;
-    if (b.pop>0){ var t=1-b.pop; sc = t<0.35 ? 0.85 + 0.35*(t/0.35) : 1.2 - 0.2*easeOutBack((t-0.35)/0.65); }
-    drawCube(b.val, b.position.x, b.position.y, b.angle, sc, 1);
+    var k2 = 0;
+    if (b.pop>0){ var t=b.popT||0; sc = t<0.08 ? 0.82 + 0.18*(t/0.08) : 1;
+      k2 += 0.2*Math.exp(-5*t)*Math.cos(13*t); }                 // stretch up, then squash, then settle
+    if (b.sqA){ k2 -= b.sqA*Math.exp(-7*b.sqT)*Math.cos(16*b.sqT); }  // landing squash
+    drawCube(b.val, b.position.x, b.position.y, b.angle, sc*(1-k2*0.7), 1, sc*(1+k2));
   }
   // ghosts (merging partner sliding in)
   for (i=0;i<ghosts.length;i++){
@@ -578,8 +652,10 @@ function damp(){
   // angular damping + rest damping: cubes stop spinning quickly and settle without jitter
   for (var i=0;i<cubes.length;i++){
     var b=cubes[i], av=b.angularVelocity;
-    if (av !== 0) Body.setAngularVelocity(b, av * (b.touched ? 0.975 : 0.99));
-    if (b.touched && b.speed < 0.12 && Math.abs(b.angularVelocity) < 0.004){
+    var q = b.angle % (Math.PI/2); if (q < 0) q += Math.PI/2;
+    var off = Math.min(q, Math.PI/2 - q);           // tilt away from lying flat
+    if (av !== 0) Body.setAngularVelocity(b, av * (b.touched ? (off < 0.06 ? 0.975 : 0.992) : 0.99));
+    if (b.touched && off < 0.05 && b.speed < 0.12 && Math.abs(b.angularVelocity) < 0.004){
       Body.setVelocity(b, {x:b.velocity.x*0.6, y:b.velocity.y*0.6});
       Body.setAngularVelocity(b, b.angularVelocity*0.5);
     }
@@ -589,11 +665,22 @@ function tick(dtMs){
   // physics with fixed step
   damp();
   Engine.update(engine, STEP);
+  for (var i=0;i<pendingBounces.length;i++){
+    var pb=pendingBounces[i], tb=pb[0], ob=pb[1];
+    if (cubes.indexOf(tb)<0 || tb.merging) continue;
+    var hop = pb[2], base = ob.isStatic ? 0 : Math.min(0, ob.velocity.y);
+    Body.setVelocity(tb, {x:tb.velocity.x*0.6, y: base - hop});
+    // a real cube that lands flat hops flat: straighten small tilts during the short airtime
+    var q = tb.angle % (Math.PI/2); if (q < 0) q += Math.PI/2; var tilt = q < Math.PI/4 ? q : q - Math.PI/2;
+    Body.setAngularVelocity(tb, Math.abs(tilt) < 0.35 ? -tilt/12 : tb.angularVelocity*0.5);
+  }
+  pendingBounces.length = 0;
   nowMs += STEP;
   processMerges();
 }
 function updateEffects(dt){
-  for (var i=cubes.length-1;i>=0;i--){ var b=cubes[i]; if (b.pop>0) b.pop=Math.max(0,b.pop-dt/0.35);
+  for (var i=cubes.length-1;i>=0;i--){ var b=cubes[i]; if (b.pop>0){ b.pop=Math.max(0,b.pop-dt/0.6); b.popT=(b.popT||0)+dt; }
+    if (b.sqA){ b.sqT+=dt; if (b.sqT>0.5) b.sqA=0; }
     if (b.position.y > H + 400 || b.position.x < -200 || b.position.x > W + 200) removeCube(b); }
   for (i=ghosts.length-1;i>=0;i--){ ghosts[i].t+=dt; if (ghosts[i].t>0.14) ghosts.splice(i,1); }
   for (i=particles.length-1;i>=0;i--){ var p=particles[i]; p.x+=p.vx*dt*60; p.y+=p.vy*dt*60; p.vy+=0.25*dt*60; p.rot+=p.vr; p.life-=dt*1.6; if(p.life<=0) particles.splice(i,1); }
@@ -617,30 +704,49 @@ function frame(t){
 
 /* ---------- input ---------- */
 function toWorldX(clientX){ var r=cv.getBoundingClientRect(); return (clientX - r.left - offX)/scale; }
-var activePointer = null;
-cv.addEventListener("pointerdown", function(e){
-  e.preventDefault(); audioUnlock();
+var activePointer = null, ptrType = "", lastFx = 0, startFx = 0, moved = false;
+var DEADZONE = 6;   // px of finger travel ignored at start, so a tap never nudges the cube
+function isUiTarget(t){ return !!(t && t.closest && t.closest("button, input, label, .overlay, .btn, .chip, .sw")); }
+function relativeMode(e){ return e.pointerType !== "mouse" && prefs.control !== "abs"; }
+document.addEventListener("pointerdown", function(e){
+  if (isUiTarget(e.target) || anyOverlay()) return;
+  if (activePointer !== null) return;          // ignore second finger
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  audioUnlock();
   if (gameOver) return;
-  activePointer = e.pointerId; aiming = true;
-  try{ cv.setPointerCapture(e.pointerId);}catch(_){}
-  aimX = clampAim(toWorldX(e.clientX));
+  activePointer = e.pointerId; ptrType = e.pointerType; aiming = true; moved = false;
+  lastFx = startFx = e.clientX;
+  try{ e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);}catch(_){}
+  if (!relativeMode(e)) aimX = clampAim(toWorldX(e.clientX));   // absolute: jump under the finger / cursor
+  // relative: the cube stays where it is — no jump on touch start
 });
-cv.addEventListener("pointermove", function(e){
+document.addEventListener("pointermove", function(e){
   if (gameOver) return;
-  if (aiming && e.pointerId===activePointer) aimX = clampAim(toWorldX(e.clientX));
-  else if (e.pointerType==="mouse" && !aiming) aimX = clampAim(toWorldX(e.clientX));
+  if (aiming && e.pointerId === activePointer){
+    if (relativeMode(e)){
+      if (!moved){
+        if (Math.abs(e.clientX - startFx) < DEADZONE) return;
+        moved = true; lastFx = startFx;   // past the dead-zone: follow the full finger travel (1:1)
+      }
+      var sens = clamp(+prefs.sens || 1, 0.7, 2);
+      aimX = clampAim(aimX + (e.clientX - lastFx) / scale * sens);      // incremental => auto re-anchors at the walls
+      lastFx = e.clientX;
+    } else aimX = clampAim(toWorldX(e.clientX));
+  } else if (e.pointerType === "mouse" && !aiming && !anyOverlay() && !isUiTarget(e.target)) {
+    aimX = clampAim(toWorldX(e.clientX));      // desktop hover-aim
+  }
 });
 function endPointer(e, doDrop){
-  if (!aiming || e.pointerId!==activePointer) return;
+  if (!aiming || e.pointerId !== activePointer) return;
   aiming = false; activePointer = null;
-  aimX = clampAim(toWorldX(e.clientX));
-  if (doDrop) drop();
+  if (!relativeMode(e)) aimX = clampAim(toWorldX(e.clientX));
+  if (doDrop && !anyOverlay()) drop();
 }
-cv.addEventListener("pointerup", function(e){ endPointer(e, true); });
-cv.addEventListener("pointercancel", function(e){ endPointer(e, false); });
+document.addEventListener("pointerup", function(e){ endPointer(e, true); });
+document.addEventListener("pointercancel", function(e){ endPointer(e, false); });
 // block page scroll / zoom gestures on iOS
 document.addEventListener("touchmove", function(e){ if (e.target.closest && e.target.closest(".scroll")) return; e.preventDefault(); }, {passive:false});
-cv.addEventListener("touchstart", function(e){ e.preventDefault(); }, {passive:false});
+document.addEventListener("touchstart", function(e){ if (!isUiTarget(e.target) && !anyOverlay()) e.preventDefault(); }, {passive:false});
 document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
 document.addEventListener("dblclick", function(e){ e.preventDefault(); });
 // keyboard (Mac)
@@ -690,7 +796,7 @@ function buildColorUI(){
   var pc = $("palChips"); pc.innerHTML = "";
   Object.keys(PALETTES).forEach(function(k){
     var b=document.createElement("button"); b.className="chip"+(prefs.palette===k?" on":""); b.dataset.pal=k;
-    var sw='<span class="sw5">'; for (var i=0;i<5;i++) sw+='<i style="background:'+PALETTES[k].c[i*2]+'"></i>'; sw+='</span>';
+    var sw='<span class="sw5">'; for (var i=0;i<5;i++) sw+='<i style="background:'+PALETTES[k].c[i]+'"></i>'; sw+='</span>';
     b.innerHTML = sw + PALETTES[k].name;
     b.onclick=function(){ prefs.palette=k; applyColors(); };
     pc.appendChild(b);
@@ -699,10 +805,10 @@ function buildColorUI(){
   for (var e=1;e<=15;e++) (function(exp){
     var col = colorFor(exp), d=document.createElement("label");
     d.className="cell"+(prefs.custom[exp]?" custom":""); d.style.background=col;
-    d.style.color = luminance(col)>0.72 ? "#2a2540" : "#fff";
+    d.style.color = darkText(col) ? "#2a2540" : "#fff";
     d.innerHTML = fmt(Math.pow(2,exp));
     var inp=document.createElement("input"); inp.type="color"; inp.value=toHex(col); inp.setAttribute("aria-label","Цвет для "+fmt(Math.pow(2,exp)));
-    inp.oninput=function(){ prefs.custom[exp]=inp.value; d.style.background=inp.value; d.style.color=luminance(inp.value)>0.72?"#2a2540":"#fff"; d.classList.add("custom"); sprites={}; };
+    inp.oninput=function(){ prefs.custom[exp]=inp.value; d.style.background=inp.value; d.style.color=darkText(inp.value)?"#2a2540":"#fff"; d.classList.add("custom"); sprites={}; };
     inp.onchange=function(){ prefs.custom[exp]=inp.value; applyColors(); };
     d.appendChild(inp); cg.appendChild(d);
   })(e);
@@ -718,7 +824,21 @@ function buildColorUI(){
 }
 $("bResetCol").onclick = function(){ prefs.custom = {}; applyColors(); };
 $("mClose").onclick = function(){ hide(ovMenu); };
-function syncPrefs(){ $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); }
+function syncCtrl(){
+  var cs=document.querySelectorAll("#ctrlChips .chip");
+  for (var i=0;i<cs.length;i++) cs[i].classList.toggle("on", cs[i].dataset.ctrl===prefs.control);
+  $("sens").value = prefs.sens; $("sensVal").textContent = (+prefs.sens).toFixed(1)+"×";
+  $("sensRow").classList.toggle("off", prefs.control==="abs");
+}
+function syncGrad(){ var gs=document.querySelectorAll("#gradChips .chip"); for (var i=0;i<gs.length;i++) gs[i].classList.toggle("on", gs[i].dataset.grad===prefs.grad); }
+(function(){ var gs=document.querySelectorAll("#gradChips .chip");
+  for (var i=0;i<gs.length;i++) gs[i].onclick=function(){ prefs.grad=this.dataset.grad; sprites={}; lsSet(PREF,prefs); syncGrad(); };
+})();
+(function(){ var cs=document.querySelectorAll("#ctrlChips .chip");
+  for (var i=0;i<cs.length;i++) cs[i].onclick=function(){ prefs.control=this.dataset.ctrl; lsSet(PREF,prefs); syncCtrl(); };
+  $("sens").oninput=function(){ prefs.sens=Math.round(+this.value*10)/10; lsSet(PREF,prefs); syncCtrl(); };
+})();
+function syncPrefs(){ syncCtrl(); syncGrad(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); }
 $("swSound").onclick = function(){ prefs.sound=!prefs.sound; lsSet(PREF,prefs); syncPrefs(); audioUnlock(); };
 $("swGuide").onclick = function(){ prefs.guide=!prefs.guide; lsSet(PREF,prefs); syncPrefs(); };
 
@@ -742,6 +862,7 @@ function tone(freq, dur, type, vol, slide){
 function sfxDrop(){ tone(220,0.12,"triangle",0.15,0.5); }
 function sfxMerge(exp, c){ var base=[0,2,4,5,7,9,11,12,14,16,17,19,21,23,24][Math.min(14,exp)]; var f=330*Math.pow(2,(base+(c-1)*2)/12);
   tone(f,0.16,"sine",0.22,1.5); setTimeout(function(){tone(f*1.5,0.12,"triangle",0.08,1.2);},40); }
+function sfxLand(v){ var now=ac&&ac.currentTime; if(!now|| now-(sfxLand.t||0)<0.06) return; sfxLand.t=now; tone(140+Math.min(60,v*6),0.08,"sine",Math.min(0.12,0.03+v*0.01),0.6); }
 function sfxUndo(){ tone(500,0.12,"sine",0.12,0.6); }
 function sfxOver(){ tone(392,0.25,"triangle",0.18); setTimeout(function(){tone(311,0.25,"triangle",0.18);},200); setTimeout(function(){tone(233,0.5,"triangle",0.18,0.8);},400); }
 
@@ -786,6 +907,12 @@ window.__cubes = {
   colorFor: function(exp){ return colorFor(exp); },
   spriteCount: function(){ return Object.keys(sprites).length; },
   bodies: function(){ return cubes.map(function(b){ return {v:b.val,y:b.position.y,vy:b.velocity.y,av:b.angularVelocity,a:b.angle,touched:b.touched}; }); },
+  aimScreenX: function(){ var r=cv.getBoundingClientRect(); return r.left + offX + clampAim(aimX)*scale; },
+  aimWorld: function(){ return aimX; },
+  setBounce: function(v){ BOUNCE=v; },
+  setGrad: function(g){ prefs.grad=g; sprites={}; lsSet(PREF,prefs); },
+  aimLimits: function(){ var r=cv.getBoundingClientRect(); return [r.left+offX+clampAim(-1e9)*scale, r.left+offX+clampAim(1e9)*scale]; },
+  setControl: function(c,s){ prefs.control=c; if(s) prefs.sens=s; lsSet(PREF,prefs); },
   world: {W:W,H:H,S:S,LINE_Y:LINE_Y}
 };
 })();
