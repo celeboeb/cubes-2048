@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.4-rating">
+<meta name="cubes-build" content="v5.5-eggplant">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -148,7 +148,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
     <button class="btn" id="bMenu" aria-label="Настройки"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   </header>
   <div id="stageWrap"><canvas id="stage"></canvas>
-    <button class="btn" id="bBlat" aria-label="Я щас позвоню кое-кому (по блату)" title="Я щас позвоню кое-кому">📞<span class="cnt" id="blatCnt">3</span></button>
+    <button class="btn" id="bBlat" aria-label="Я щас позвоню кое-кому (по блату)" title="Я щас позвоню кое-кому">🍆<span class="cnt" id="blatCnt">3</span></button>
   </div>
   <div id="blatToast"><span class="ph">📞</span><div class="tx"><small id="blatSmall">ПО БЛАТУ</small><span id="blatLine"></span></div></div>
 </div>
@@ -180,7 +180,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="mRating" style="margin:0 0 12px">🏆 Рейтинг</button>
   <div class="toggle"><span>Звук</span><div class="sw" id="swSound"></div></div>
   <div class="toggle"><span>Подсказка-прицел</span><div class="sw" id="swGuide"></div></div>
-  <div class="toggle"><span>📞 «Я щас позвоню кое-кому»</span><div class="sw" id="swBlat"></div></div>
+  <div class="toggle"><span>🍆 «Я щас позвоню кое-кому»</span><div class="sw" id="swBlat"></div></div>
   <p class="rules" style="margin:-8px 0 14px;font-size:13px">Режим «по блату»: 3 звонка за игру. Всё притягивается, одинаковые кубики сливаются, а следующие кубики приходят «по знакомству». Такая игра идёт в отдельный блат-рекорд, а честный рекорд не трогает.</p>
   <h3>Управление</h3>
   <div class="chips" id="ctrlChips">
@@ -210,7 +210,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.4 · режим «по блату» · рейтинг · 28.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.5 · режим «по блату» · баклажан · рейтинг · 28.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
@@ -945,10 +945,10 @@ setInterval(function(){ if(keys.l) aimX=clampAim(aimX-7); if(keys.r) aimX=clampA
 /* ---------- «Я щас позвоню кое-кому» (по блату) ---------- */
 var BLAT_DIAL = 800, BLAT_TALK = 900, BLAT_PULL = 1500, BLAT_STEP = 190;   // ms
 var BLAT_LINES = [
-  ["Алло, Михалыч?", "Решим вопрос…"],
+  ["Алё, Кабан?!", "Решим вопрос…"],
   ["Алё, Кабан?!", "Тут кубики мешают, подвинь…"],
-  ["Алло, дядя Гоша?", "Ты же знаешь, кто звонит…"],
-  ["Алло, Семёныч?", "Нужны кубики. Без бумажек."]
+  ["Алё, Кабан?!", "Ты же знаешь, кто звонит…"],
+  ["Алё, Кабан?!", "Нужны кубики. Без бумажек."]
 ];
 var toastTO;
 function showToast(small, line, ring){
