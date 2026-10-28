@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.3-rating">
+<meta name="cubes-build" content="v5.4-rating">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -97,6 +97,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   background:rgba(34,29,61,.78);border:1.5px solid rgba(255,209,102,.7);box-shadow:0 0 14px rgba(255,209,102,.25);
   -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
 #bBlat[hidden]{display:none}
+#bBlat.off{opacity:.45}
 #bBlat .cnt{position:absolute;right:-5px;bottom:-5px;min-width:19px;height:19px;border-radius:10px;background:#ffd166;color:#2a2540;
   font-size:12px;font-weight:900;display:grid;place-items:center;padding:0 4px;font-family:inherit}
 #bBlat.busy{animation:ringbtn .22s linear infinite}
@@ -209,7 +210,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.3 · режим «по блату» · рейтинг · 28.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.4 · режим «по блату» · рейтинг · 28.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
@@ -548,7 +549,7 @@ function restore(s, keepBlat){
   held = {val: s.held || randomVal(), born: nowMs, blat: false}; nextBlat = false;
   if (!keepBlat){ var sb = s.blat || {}; blat.used = !!sb.used; blat.charges = sb.charges==null ? BLAT_CHARGES : sb.charges|0; blat.bonus = sb.bonus|0; }
   gid = s.gid || newGid();
-  blat.phase = ""; blat.t = 0; blat.grace = 0; setGravity(1.1); hideToast();
+  blatAbort(); blat.grace = 0; pendingMerges.length = 0;
   gameOver = false; dangerT = 0; combo = 0;
   updateHud();
 }
@@ -582,7 +583,7 @@ function checkDanger(dt){
 }
 function endGame(){
   gameOver = true; held = null; aiming = false;
-  blat.phase = ""; hideToast(); setGravity(1.1);
+  blatAbort();
   var cb = curBest(), rec = score >= cb && score > 0;
   pushBest();
   $("ovScore").textContent = fmtScore(score);
@@ -617,6 +618,13 @@ function resize(){
   offX = (cssW - (W+PAD*2)*scale)/2 + PAD*scale;
   offY = (cssH - (H+PAD*2)*scale)/2 + PAD*scale;
   sprites = {};
+  placeBlat();
+}
+function placeBlat(){
+  var b = document.getElementById("bBlat"); if (!b) return;
+  // sits at the left edge just above the lose line (nothing clickable nearby; the old top-left spot was ~19px under «Заново»)
+  b.style.top = Math.max(4, Math.round(offY + (LINE_Y - 2)*scale - 42)) + "px";
+  b.style.left = Math.round(offX + 6) + "px";
 }
 function sprite(val){
   var sp = sprites[val]; if (sp) return sp;
@@ -866,7 +874,7 @@ function frame(t){
     if (n === 6) acc = 0;
   }
   updateEffects(dt/1000);
-  blatUpdate(dt);
+  try{ blatUpdate(dt); }catch(err){ blatAbort(); blatUi(); }
   if (!gameOver){ if (blat.phase || blat.grace > 0){ dangerT = 0; blat.grace = Math.max(0, blat.grace - dt); } else checkDanger(dt/1000); }
   render();
   if (dirty && nowMs - lastSave > 1200) save();
@@ -952,16 +960,22 @@ function blatUi(){
   var b=$("bBlat"); if (!b) return;
   b.hidden = !prefs.blat;
   $("blatCnt").textContent = blat.charges;
-  b.disabled = gameOver || !!blat.phase || blat.charges<=0 || !held;
+  var off = gameOver || !!blat.phase || blat.charges<=0 || !held;
+  b.classList.toggle("off", off); b.setAttribute("aria-disabled", off ? "true" : "false");
   b.classList.toggle("busy", !!blat.phase);
   $("app").classList.toggle("blat", blat.used);
   $("lblScore").textContent = blat.used ? "СЧЁТ 📞" : "СЧЁТ";
   $("lblBest").textContent = blat.used ? "БЛАТ-РЕКОРД" : "РЕКОРД";
 }
+function blatAbort(){          // drop every trace of a running call: phase, magnet, gravity, toast, timers
+  blat.phase = ""; blat.t = 0; blat.step = 0; blat.total = 0; setGravity(1.1);
+  for (var i=0;i<cubes.length;i++) cubes[i]._tx = null;
+  clearTimeout(toastTO); hideToast();
+}
 function blatStart(){
   if (gameOver || blat.phase || blat.charges <= 0 || !prefs.blat) return false;
   undoSnap = snapshot();                       // undo rolls the board back, but the call stays spent
-  blat.used = true; blat.charges--; blat.phase = "dial"; blat.t = 0; blat.step = 0;
+  blat.used = true; blat.charges--; blat.phase = "dial"; blat.t = 0; blat.step = 0; blat.total = 0;
   blat.line = Math.floor(Math.random()*BLAT_LINES.length);
   aiming = false; combo = 0;
   audioUnlock(); sfxRing();
@@ -971,7 +985,8 @@ function blatStart(){
 }
 function blatUpdate(dt){
   if (!blat.phase) return;
-  blat.t += dt;
+  blat.t += dt; blat.total = (blat.total||0) + dt;
+  if (blat.total > 14000){ blatAbort(); blatUi(); return; }   // watchdog: a call can never lock the game
   var L = BLAT_LINES[blat.line];
   if (blat.phase === "dial"){
     if (blat.t > BLAT_DIAL){ blat.phase = "talk"; blat.t = 0; showToast("ПО БЛАТУ", L[0], false); sfxPick(); }
@@ -1122,7 +1137,13 @@ function fitOverlays(){
 }
 if (window.visualViewport){ window.visualViewport.addEventListener("resize", fitOverlays); window.visualViewport.addEventListener("scroll", fitOverlays); }
 document.addEventListener("focusout", function(){ setTimeout(fitOverlays, 120); });
-$("bRestart").onclick = function(){ if (gameOver || moves===0) newGame(); else show(ovConfirm); };
+var lastDown = {t:-1e9, el:null};
+document.addEventListener("pointerdown", function(e){ lastDown.t = performance.now(); lastDown.el = e.target; }, true);
+document.addEventListener("touchstart", function(e){ lastDown.t = performance.now(); lastDown.el = e.target; }, true);
+$("bRestart").onclick = function(ev){
+  // iOS can re-target a tap that landed next to a button onto that button: only react if the finger really went down on it
+  if (ev && ev.isTrusted && performance.now() - lastDown.t < 900 && lastDown.el && !$("bRestart").contains(lastDown.el)) return;
+  if (gameOver || moves===0) newGame(); else show(ovConfirm); };
 $("cNo").onclick = function(){ hide(ovConfirm); };
 $("cYes").onclick = function(){ hide(ovConfirm); newGame(); };
 $("ovAgain").onclick = function(){ newGame(); };
@@ -1278,7 +1299,7 @@ window.__cubes = {
   aimLimits: function(){ var r=cv.getBoundingClientRect(); return [r.left+offX+clampAim(-1e9)*scale, r.left+offX+clampAim(1e9)*scale]; },
   setControl: function(c,s){ prefs.control=c; if(s) prefs.sens=s; lsSet(PREF,prefs); },
   blat: function(){ return {used:blat.used, charges:blat.charges, bonus:blat.bonus, phase:blat.phase, best:best, bestBlat:bestBlat,
-    btnHidden:$("bBlat").hidden, btnDisabled:$("bBlat").disabled, lblBest:$("lblBest").textContent, lblScore:$("lblScore").textContent,
+    btnHidden:$("bBlat").hidden, btnDisabled:$("bBlat").getAttribute("aria-disabled")==="true", gravity:engine.gravity.y, tx:cubes.filter(function(c){return c._tx!=null;}).length, lblBest:$("lblBest").textContent, lblScore:$("lblScore").textContent,
     toast:$("blatToast").classList.contains("show"), toastText:$("blatLine").textContent, heldBlat:!!(held&&held.blat), nextBlat:nextBlat}; },
   blatCall: function(){ return blatStart(); },
   endNow: function(){ if (!gameOver) endGame(); },
