@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.1-blat">
+<meta name="cubes-build" content="v5.3-rating">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -110,6 +110,29 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 #blatToast.ring .ph{animation:ringbtn .22s linear infinite}
 #blatToast .tx{font-weight:800;font-size:16px;line-height:1.25}
 #blatToast .tx small{display:block;font-weight:600;font-size:12px;color:#ffd166;letter-spacing:.04em;margin-bottom:1px}
+.namebox{display:flex;gap:8px;margin:0 0 14px}
+.namebox input{flex:1;min-width:0;height:52px;border-radius:16px;border:1.5px solid var(--stroke);background:rgba(255,255,255,.08);color:var(--text);
+  font:inherit;font-size:16px;font-weight:700;padding:0 14px;-webkit-appearance:none;appearance:none;outline:none;
+  -webkit-user-select:text;user-select:text;-webkit-touch-callout:default;touch-action:manipulation}
+.namebox input:focus{border-color:#ffd166;background:rgba(255,255,255,.12)}
+.namebox input::placeholder{color:rgba(168,159,206,.7);font-weight:600}
+.namebox .pbtn{flex:0 0 112px;font-size:16px}
+#savedBtn{margin:0 0 14px}
+.lbtabs{display:flex;gap:8px;margin:2px 0 10px}
+.lbtabs .chip{flex:1 1 0;justify-content:center;font-size:14px}
+.lbhead,.lbrow{display:grid;grid-template-columns:26px minmax(0,1fr) 62px 44px 42px;gap:6px;align-items:center;text-align:left;padding:7px 8px;font-variant-numeric:tabular-nums}
+.lbhead{font-size:10px;letter-spacing:.1em;color:var(--muted);font-weight:700;padding-top:0;padding-bottom:4px}
+.lbhead span:nth-child(3),.lbhead span:nth-child(4),.lbhead span:nth-child(5),.lbrow span:nth-child(3),.lbrow span:nth-child(4),.lbrow span:nth-child(5){text-align:right}
+.lbrow{border-radius:12px;font-size:14px;font-weight:700;background:rgba(255,255,255,.05);margin-bottom:4px;border:1.5px solid transparent}
+.lbrow span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbrow span:nth-child(1){color:var(--muted);font-weight:900}
+.lbrow span:nth-child(3){font-weight:900}
+.lbrow span:nth-child(5){font-size:11px;color:var(--muted);font-weight:600}
+.lbrow.top1 span:nth-child(1){color:#ffd166}
+.lbrow.me{border-color:#ffd166;background:rgba(255,209,102,.16);animation:pop .35s cubic-bezier(.2,1.4,.4,1)}
+.lbrow.sep{background:none;color:var(--muted);justify-content:center;display:block;text-align:center;padding:0 0 2px;font-size:16px;letter-spacing:.3em}
+.lbempty{color:var(--muted);font-size:15px;padding:18px 0 22px}
+#lbList{margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -132,7 +155,17 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 <div class="overlay" id="ovOver"><div class="card">
   <h2>Игра окончена</h2><p id="ovSub">Кубики дошли до линии</p>
   <div class="big" id="ovScore">0</div><div class="rec" id="ovRec"></div>
+  <div class="namebox" id="nameBox"><input id="nameIn" type="text" maxlength="16" placeholder="Игрок" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done" aria-label="Ваше имя"><button class="pbtn" id="nameSave">Сохранить</button></div>
+  <button class="pbtn sec small" id="savedBtn" hidden>🏆 Рейтинг</button>
   <div class="row"><button class="pbtn sec" id="ovUndo">Отменить ход</button><button class="pbtn" id="ovAgain">Ещё раз</button></div>
+</div></div>
+
+<div class="overlay" id="ovRank"><div class="card scroll" id="rankCard">
+  <h2>🏆 Рейтинг</h2><p id="lbSub">Лучшие 10 игр на этом устройстве</p>
+  <div class="lbtabs" id="lbTabs"><button class="chip" data-tab="h">Честный</button><button class="chip" data-tab="b">По блату 📞</button></div>
+  <div class="lbhead"><span>#</span><span>ИМЯ</span><span>СЧЁТ</span><span>МАКС</span><span>ДАТА</span></div>
+  <div id="lbList"></div>
+  <div class="row sticky"><button class="pbtn" id="lbClose">Закрыть</button></div>
 </div></div>
 
 <div class="overlay" id="ovConfirm"><div class="card">
@@ -143,6 +176,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 <div class="overlay" id="ovMenu"><div class="card scroll" id="menuCard">
   <h2>Кубы 2048</h2>
   <p class="rules">Ведите пальцем влево-вправо, чтобы прицелиться, и отпустите — кубик упадёт. Одинаковые кубики при касании сливаются в один вдвое больше. Слияния подряд дают комбо. Если кубики останутся выше пунктирной линии — игра окончена.</p>
+  <button class="pbtn sec small" id="mRating" style="margin:0 0 12px">🏆 Рейтинг</button>
   <div class="toggle"><span>Звук</span><div class="sw" id="swSound"></div></div>
   <div class="toggle"><span>Подсказка-прицел</span><div class="sw" id="swGuide"></div></div>
   <div class="toggle"><span>📞 «Я щас позвоню кое-кому»</span><div class="sw" id="swBlat"></div></div>
@@ -175,7 +209,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.1 · режим «по блату» · 28.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.3 · режим «по блату» · рейтинг · 28.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
@@ -216,7 +250,7 @@ var pendingBounces = [];
 var STEP = 1000/120;        // fixed physics step (ms)
 var LOSE_TIME = 2.0;        // seconds above line before game over
 var DROP_COOLDOWN = 420;    // ms before next cube can be dropped
-var STORE = "cubes2048.save.v1", BEST = "cubes2048.best.v1", PREF = "cubes2048.prefs.v1", BEST_BLAT = "cubes2048.bestblat.v1";
+var STORE = "cubes2048.save.v1", BEST = "cubes2048.best.v1", PREF = "cubes2048.prefs.v1", BEST_BLAT = "cubes2048.bestblat.v1", RATING = "cubes2048.rating.v1", NAME = "cubes2048.name.v1";
 
 /* ---------- helpers ---------- */
 function fmt(v){
@@ -302,6 +336,8 @@ function PALETTES_OK(k){ return ["classic","calm","nordic","dusk","pastel","neon
 var moves = 0;
 var tutorialAlpha = 1;
 var uid = 1;
+function newGid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+var gid = newGid(), lastEntryId = null;
 
 function makeEngine(){
   engine = Engine.create({ positionIterations: 14, velocityIterations: 10 });
@@ -500,7 +536,7 @@ function snapshot(){
     cubes: cubes.map(function(b){ return [b.val, +b.position.x.toFixed(2), +b.position.y.toFixed(2), +b.angle.toFixed(4),
       +b.velocity.x.toFixed(3), +b.velocity.y.toFixed(3), +b.angularVelocity.toFixed(4)]; }),
     score: score, H: H, held: held ? held.val : null, next: nextVal, aimX: aimX, moves: moves,
-    blat: {used:blat.used, charges:blat.charges, bonus:blat.bonus}
+    blat: {used:blat.used, charges:blat.charges, bonus:blat.bonus}, gid: gid
   };
 }
 function restore(s, keepBlat){
@@ -511,6 +547,7 @@ function restore(s, keepBlat){
   score = s.score||0; nextVal = s.next||2; aimX = s.aimX||W/2; moves = s.moves||0;
   held = {val: s.held || randomVal(), born: nowMs, blat: false}; nextBlat = false;
   if (!keepBlat){ var sb = s.blat || {}; blat.used = !!sb.used; blat.charges = sb.charges==null ? BLAT_CHARGES : sb.charges|0; blat.bonus = sb.bonus|0; }
+  gid = s.gid || newGid();
   blat.phase = ""; blat.t = 0; blat.grace = 0; setGravity(1.1); hideToast();
   gameOver = false; dangerT = 0; combo = 0;
   updateHud();
@@ -558,6 +595,7 @@ function endGame(){
   }
   $("ovUndo").hidden = !undoSnap;
   sfxOver();
+  ratingOnEnd();
   try{ localStorage.removeItem(STORE);}catch(e){}
   setTimeout(function(){ if (gameOver) show(ovOver); }, 450);
   updateHud();
@@ -884,6 +922,7 @@ document.addEventListener("dblclick", function(e){ e.preventDefault(); });
 // keyboard (Mac)
 var keys = {};
 document.addEventListener("keydown", function(e){
+  if (e.target && e.target.tagName === "INPUT") return;      // typing a name must not move/drop cubes
   if (e.key==="ArrowLeft"||e.key==="a") { keys.l=true; e.preventDefault(); }
   else if (e.key==="ArrowRight"||e.key==="d") { keys.r=true; e.preventDefault(); }
   else if (e.key===" "||e.key==="Enter"||e.key==="ArrowDown") { if(!anyOverlay()){ audioUnlock(); drop(); } e.preventDefault(); }
@@ -899,7 +938,7 @@ setInterval(function(){ if(keys.l) aimX=clampAim(aimX-7); if(keys.r) aimX=clampA
 var BLAT_DIAL = 800, BLAT_TALK = 900, BLAT_PULL = 1500, BLAT_STEP = 190;   // ms
 var BLAT_LINES = [
   ["Алло, Михалыч?", "Решим вопрос…"],
-  ["Алё, Петрович, это я.", "Тут кубики мешают, подвинь…"],
+  ["Алё, Кабан?!", "Тут кубики мешают, подвинь…"],
   ["Алло, дядя Гоша?", "Ты же знаешь, кто звонит…"],
   ["Алло, Семёныч?", "Нужны кубики. Без бумажек."]
 ];
@@ -990,12 +1029,71 @@ function blatFinish(){
   sfxBlatDone(); blatUi(); updateHud(); save();
 }
 
+/* ---------- rating (localStorage, on this device) ---------- */
+function ratingLoad(){ var r = lsGet(RATING, []); return Array.isArray(r) ? r : []; }
+function ratingSave(r){
+  var h = r.filter(function(e){return !e.b;}).sort(cmpE).slice(0,50), b = r.filter(function(e){return e.b;}).sort(cmpE).slice(0,50);
+  lsSet(RATING, h.concat(b));
+}
+function cmpE(a,b){ return b.s - a.s || a.d - b.d; }
+function cleanName(v){ return String(v==null?"":v).replace(/[\u0000-\u001f\u007f<>]/g," ").replace(/\s+/g," ").trim().slice(0,16).trim(); }
+function maxCube(){ var m=0; for (var i=0;i<cubes.length;i++) if (cubes[i].val>m) m=cubes[i].val; return m; }
+function fmtDate(ts){ var d=new Date(ts); function z(n){return (n<10?"0":"")+n;} return z(d.getDate())+"."+z(d.getMonth()+1); }
+function placeOf(e){ var l = ratingLoad().filter(function(x){return !!x.b===!!e.b;}).sort(cmpE); for (var i=0;i<l.length;i++) if (l[i].id===e.id) return i+1; return 0; }
+function ratingOnEnd(){
+  var r = ratingLoad(), ex = null;
+  for (var i=0;i<r.length;i++) if (r[i].id===gid){ ex = r[i]; break; }
+  if (ex){          // this finished game is already in the table (undo -> played on -> ended again): update, never duplicate
+    if (score > ex.s || !!ex.b !== blat.used){ ex.s = Math.max(score, ex.s); ex.m = Math.max(maxCube(), ex.m||0); ex.b = blat.used; ex.d = Date.now(); ratingSave(r); }
+    showSaved(ex);
+  } else if (score > 0){
+    $("nameIn").value = lsGet(NAME, "") || ""; $("nameBox").hidden = false; $("savedBtn").hidden = true;
+  } else { $("nameBox").hidden = true; $("savedBtn").hidden = true; }
+}
+function showSaved(e){
+  $("nameBox").hidden = true; var pl = placeOf(e);
+  $("savedBtn").textContent = "🏆 Рейтинг · место №" + pl; $("savedBtn").hidden = false;
+}
+function doSaveName(){
+  if (!gameOver || $("nameBox").hidden) return;
+  var name = cleanName($("nameIn").value) || "Игрок";
+  var r = ratingLoad();
+  for (var i=0;i<r.length;i++) if (r[i].id===gid) return;     // already saved
+  var e = {id:gid, n:name, s:Math.floor(score), m:maxCube(), b:blat.used, d:Date.now()};
+  r.push(e); ratingSave(r); lsSet(NAME, name); lastEntryId = gid;
+  try{ $("nameIn").blur(); }catch(_){}
+  showSaved(e); openRating(e.b ? "b" : "h", gid);
+}
+var rankTab = "h", rankHi = null;
+function openRating(tab, hiId){
+  rankTab = tab === "b" ? "b" : "h"; rankHi = hiId || null;
+  renderRating(); hide(ovMenu); show(ovRank); $("rankCard").scrollTop = 0;
+}
+function renderRating(){
+  var tabs = document.querySelectorAll("#lbTabs .chip"), i;
+  for (i=0;i<tabs.length;i++) tabs[i].classList.toggle("on", tabs[i].dataset.tab===rankTab);
+  $("lbSub").textContent = rankTab==="b" ? "Игры, где звонили кое-кому — отдельная таблица" : "Честные игры, без звонков";
+  var want = rankTab==="b", list = ratingLoad().filter(function(e){return !!e.b===want;}).sort(cmpE);
+  var box = $("lbList"); box.innerHTML = "";
+  if (!list.length){ var em=document.createElement("div"); em.className="lbempty"; em.textContent = want ? "Пока никто не звонил. Позвоните кое-кому 📞" : "Пока пусто — сыграйте партию!"; box.appendChild(em); return; }
+  function row(e, place){
+    var d=document.createElement("div"); d.className="lbrow"+(place===1?" top1":"")+(e.id===rankHi?" me":"");
+    var vals=[place===1?"🥇":place===2?"🥈":place===3?"🥉":String(place), e.n, fmtScore(e.s), fmt(e.m||0), fmtDate(e.d)];
+    for (var k=0;k<vals.length;k++){ var sp=document.createElement("span"); sp.textContent = vals[k]; d.appendChild(sp); }
+    d.dataset.place = place; box.appendChild(d);
+  }
+  var shown = false;
+  for (i=0;i<Math.min(10,list.length);i++){ row(list[i], i+1); if (list[i].id===rankHi) shown = true; }
+  if (rankHi && !shown){ for (i=10;i<list.length;i++) if (list[i].id===rankHi){
+    var sep=document.createElement("div"); sep.className="lbrow sep"; sep.textContent="⋯"; box.appendChild(sep); row(list[i], i+1); break; } }
+}
+
 /* ---------- HUD / overlays ---------- */
 function $(id){ return document.getElementById(id); }
-var ovOver=$("ovOver"), ovConfirm=$("ovConfirm"), ovMenu=$("ovMenu");
+var ovOver=$("ovOver"), ovConfirm=$("ovConfirm"), ovMenu=$("ovMenu"), ovRank=$("ovRank");
 function show(o){ o.classList.add("show"); }
 function hide(o){ o.classList.remove("show"); }
-function anyOverlay(){ return ovOver.classList.contains("show")||ovConfirm.classList.contains("show")||ovMenu.classList.contains("show"); }
+function anyOverlay(){ return ovOver.classList.contains("show")||ovConfirm.classList.contains("show")||ovMenu.classList.contains("show")||ovRank.classList.contains("show"); }
 var shownScore = 0;
 function updateHud(){
   $("score").textContent = fmtScore(score);
@@ -1006,6 +1104,24 @@ function updateHud(){
 var bumpTO;
 function bumpScore(){ var el=$("scoreBox"); el.classList.add("bump"); clearTimeout(bumpTO); bumpTO=setTimeout(function(){el.classList.remove("bump");},140); }
 $("bBlat").onclick = function(){ blatStart(); };
+$("nameSave").onclick = function(){ doSaveName(); };
+$("nameIn").addEventListener("keydown", function(e){ if (e.key==="Enter"){ e.preventDefault(); doSaveName(); } });
+$("nameIn").addEventListener("input", function(){ if (this.value.length>16) this.value = this.value.slice(0,16); });
+$("savedBtn").onclick = function(){ openRating(blat.used ? "b" : "h", lastEntryId || gid); };
+$("mRating").onclick = function(){ openRating(blat.used ? "b" : "h", null); };
+$("lbClose").onclick = function(){ hide(ovRank); };
+(function(){ var tb=document.querySelectorAll("#lbTabs .chip"); for (var i=0;i<tb.length;i++) tb[i].onclick=function(){ rankTab=this.dataset.tab; renderRating(); $("rankCard").scrollTop=0; }; })();
+// keep overlays inside the visible area when the on-screen keyboard is open (iOS Safari / home-screen app)
+function fitOverlays(){
+  var vv = window.visualViewport, ovs = document.querySelectorAll(".overlay"), kb = vv && vv.height < window.innerHeight - 90;
+  for (var i=0;i<ovs.length;i++){
+    if (kb){ ovs[i].style.top = vv.offsetTop + "px"; ovs[i].style.bottom = "auto"; ovs[i].style.height = vv.height + "px"; ovs[i].style.paddingTop = "12px"; ovs[i].style.paddingBottom = "12px"; }
+    else { ovs[i].style.top = ovs[i].style.bottom = ovs[i].style.height = ovs[i].style.paddingTop = ovs[i].style.paddingBottom = ""; }
+  }
+  if (!kb) window.scrollTo(0,0);
+}
+if (window.visualViewport){ window.visualViewport.addEventListener("resize", fitOverlays); window.visualViewport.addEventListener("scroll", fitOverlays); }
+document.addEventListener("focusout", function(){ setTimeout(fitOverlays, 120); });
 $("bRestart").onclick = function(){ if (gameOver || moves===0) newGame(); else show(ovConfirm); };
 $("cNo").onclick = function(){ hide(ovConfirm); };
 $("cYes").onclick = function(){ hide(ovConfirm); newGame(); };
@@ -1165,6 +1281,9 @@ window.__cubes = {
     btnHidden:$("bBlat").hidden, btnDisabled:$("bBlat").disabled, lblBest:$("lblBest").textContent, lblScore:$("lblScore").textContent,
     toast:$("blatToast").classList.contains("show"), toastText:$("blatLine").textContent, heldBlat:!!(held&&held.blat), nextBlat:nextBlat}; },
   blatCall: function(){ return blatStart(); },
+  endNow: function(){ if (!gameOver) endGame(); },
+  rating: function(){ return {list:ratingLoad(), name:lsGet(NAME,null), gid:gid}; },
+  setScore: function(n){ score = n; updateHud(); },
   blatVal: function(){ return blatVal(); },
   world: {W:W,H:H,S:S,LINE_Y:LINE_Y}
 };
