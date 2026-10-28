@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.5-eggplant">
+<meta name="cubes-build" content="v5.6-autodrop">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -180,6 +180,8 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="mRating" style="margin:0 0 12px">🏆 Рейтинг</button>
   <div class="toggle"><span>Звук</span><div class="sw" id="swSound"></div></div>
   <div class="toggle"><span>Подсказка-прицел</span><div class="sw" id="swGuide"></div></div>
+  <div class="toggle"><span>Сыпать при зажатии</span><div class="sw" id="swAuto"></div></div>
+  <p class="rules" style="margin:-8px 0 14px;font-size:13px">Держите палец или кнопку мыши — кубики сами сыплются один за другим туда, где вы целитесь (примерно раз в полсекунды, по тем же правилам, что и обычные броски). Отпустите — остановится.</p>
   <div class="toggle"><span>🍆 «Я щас позвоню кое-кому»</span><div class="sw" id="swBlat"></div></div>
   <p class="rules" style="margin:-8px 0 14px;font-size:13px">Режим «по блату»: 3 звонка за игру. Всё притягивается, одинаковые кубики сливаются, а следующие кубики приходят «по знакомству». Такая игра идёт в отдельный блат-рекорд, а честный рекорд не трогает.</p>
   <h3>Управление</h3>
@@ -210,7 +212,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.5 · режим «по блату» · баклажан · рейтинг · 28.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.6 · режим «по блату» · баклажан · сыпать при зажатии · 28.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
@@ -251,6 +253,7 @@ var pendingBounces = [];
 var STEP = 1000/120;        // fixed physics step (ms)
 var LOSE_TIME = 2.0;        // seconds above line before game over
 var DROP_COOLDOWN = 420;    // ms before next cube can be dropped
+var AUTODROP = "cubes2048.autodrop.v1";
 var STORE = "cubes2048.save.v1", BEST = "cubes2048.best.v1", PREF = "cubes2048.prefs.v1", BEST_BLAT = "cubes2048.bestblat.v1", RATING = "cubes2048.rating.v1", NAME = "cubes2048.name.v1";
 
 /* ---------- helpers ---------- */
@@ -874,6 +877,7 @@ function frame(t){
     if (n === 6) acc = 0;
   }
   updateEffects(dt/1000);
+  try{ autoDropStep(); }catch(err){}
   try{ blatUpdate(dt); }catch(err){ blatAbort(); blatUi(); }
   if (!gameOver){ if (blat.phase || blat.grace > 0){ dangerT = 0; blat.grace = Math.max(0, blat.grace - dt); } else checkDanger(dt/1000); }
   render();
@@ -894,11 +898,13 @@ document.addEventListener("pointerdown", function(e){
   if (gameOver) return;
   activePointer = e.pointerId; ptrType = e.pointerType; aiming = true; moved = false;
   lastFx = startFx = e.clientX;
+  holdT0 = performance.now(); lastAutoAt = 0; holdDrops = 0; holdX = e.clientX; holdY = e.clientY;
   try{ e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId);}catch(_){}
   if (!relativeMode(e)) aimX = clampAim(toWorldX(e.clientX));   // absolute: jump under the finger / cursor
   // relative: the cube stays where it is — no jump on touch start
 });
 document.addEventListener("pointermove", function(e){
+  if (aiming && e.pointerId === activePointer){ holdX = e.clientX; holdY = e.clientY; }
   if (gameOver) return;
   if (aiming && e.pointerId === activePointer){
     if (relativeMode(e)){
@@ -914,14 +920,31 @@ document.addEventListener("pointermove", function(e){
     aimX = clampAim(toWorldX(e.clientX));      // desktop hover-aim
   }
 });
+/* ---------- «Сыпать при зажатии» (hold-to-drop, setting; off by default) ---------- */
+var autoDrop = lsGet(AUTODROP,false) === true;
+var AUTO_HOLD_MS = 350, AUTO_GAP_MS = 480;       // hold this long before the first auto drop; then at most one per 480 ms
+var holdT0 = 0, lastAutoAt = 0, holdDrops = 0, holdX = 0, holdY = 0;
+function holdInField(){
+  var r = cv.getBoundingClientRect();
+  return holdX >= r.left && holdX <= r.right && holdY >= r.top && holdY <= r.bottom;
+}
+function autoDropStep(){
+  if (!autoDrop || !aiming || activePointer === null || gameOver || blat.phase || anyOverlay()) return;
+  var t = performance.now();
+  if (t - holdT0 < AUTO_HOLD_MS || t - lastAutoAt < AUTO_GAP_MS) return;
+  if (!holdInField()) return;                     // finger/cursor left the field: no drops until it is back
+  if (drop()){ lastAutoAt = t; holdDrops++; }     // drop() enforces all normal rules (cooldown, next cube ready)
+}
 function endPointer(e, doDrop){
   if (!aiming || e.pointerId !== activePointer) return;
   aiming = false; activePointer = null;
   if (!relativeMode(e)) aimX = clampAim(toWorldX(e.clientX));
-  if (doDrop && !anyOverlay()) drop();
+  var auto = autoDrop && holdDrops > 0; holdDrops = 0;   // hold already dropped cubes: the release must not add one more
+  if (doDrop && !anyOverlay() && !auto) drop();
 }
 document.addEventListener("pointerup", function(e){ endPointer(e, true); });
 document.addEventListener("pointercancel", function(e){ endPointer(e, false); });
+document.addEventListener("contextmenu", function(e){ if (!isUiTarget(e.target)) e.preventDefault(); });
 // block page scroll / zoom gestures on iOS
 document.addEventListener("touchmove", function(e){ if (e.target.closest && e.target.closest(".scroll")) return; e.preventDefault(); }, {passive:false});
 document.addEventListener("touchstart", function(e){ if (!isUiTarget(e.target) && !anyOverlay()) e.preventDefault(); }, {passive:false});
@@ -1212,9 +1235,10 @@ function syncGrad(){ var gs=document.querySelectorAll("#gradChips .chip"); for (
   for (var i=0;i<cs.length;i++) cs[i].onclick=function(){ prefs.control=this.dataset.ctrl; lsSet(PREF,prefs); syncCtrl(); };
   $("sens").oninput=function(){ prefs.sens=Math.round(+this.value*10)/10; lsSet(PREF,prefs); syncCtrl(); };
 })();
-function syncPrefs(){ $("swBlat").classList.toggle("on",!!prefs.blat); blatUi(); syncCtrl(); syncGrad(); syncSpawn(); syncMerge(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); }
+function syncPrefs(){ $("swBlat").classList.toggle("on",!!prefs.blat); blatUi(); syncCtrl(); syncGrad(); syncSpawn(); syncMerge(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); $("swAuto").classList.toggle("on",!!autoDrop); }
 $("swSound").onclick = function(){ prefs.sound=!prefs.sound; lsSet(PREF,prefs); syncPrefs(); audioUnlock(); };
 $("swBlat").onclick = function(){ prefs.blat=!prefs.blat; lsSet(PREF,prefs); syncPrefs(); };
+$("swAuto").onclick = function(){ autoDrop=!autoDrop; lsSet(AUTODROP,autoDrop); holdDrops=0; syncPrefs(); };
 $("swGuide").onclick = function(){ prefs.guide=!prefs.guide; lsSet(PREF,prefs); syncPrefs(); };
 
 /* ---------- sound (synthesized, no files) ---------- */
