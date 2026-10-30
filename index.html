@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.6-autodrop">
+<meta name="cubes-build" content="v5.8">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -77,6 +77,8 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 .sens.off{opacity:.35;pointer-events:none}
 .sens input{flex:1;min-width:0;accent-color:#8c7cff;touch-action:manipulation;height:28px}
 .sens b{min-width:46px;flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums}
+.sens.ph{flex-wrap:wrap;gap:2px 10px;margin-top:10px}.sens.ph span{flex:1 1 100%;font-size:14px;text-align:left;color:var(--muted)}.sens.ph b{min-width:54px}
+#physChips .chip{justify-content:center;font-size:13px}
 .chip{flex:1 1 calc(50% - 8px);display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:14px;border:2px solid transparent;
   background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation}
 .chip.on{border-color:#fff;background:rgba(255,255,255,.12)}
@@ -199,6 +201,18 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
     <button class="chip" data-merge="toward">В сторону прилетевшего</button>
     <button class="chip" data-merge="inertia">По инерции</button>
   </div>
+  <h3>Физика кубиков</h3>
+  <div class="chips" id="physChips">
+    <button class="chip" data-phys="calm">Спокойная</button>
+    <button class="chip" data-phys="yandex">Как в Яндексе</button>
+  </div>
+  <div class="sens ph"><span>Упругость (отскок)</span><input type="range" id="phRest" min="0" max="60" step="1"><b id="phRestV"></b></div>
+  <div class="sens ph"><span>Вес</span><input type="range" id="phWeight" min="0" max="100" step="1"><b id="phWeightV"></b></div>
+  <div class="sens ph"><span>Трение</span><input type="range" id="phFric" min="0" max="100" step="1"><b id="phFricV"></b></div>
+  <div class="sens ph"><span>Гравитация</span><input type="range" id="phGrav" min="50" max="160" step="1"><b id="phGravV"></b></div>
+  <div class="toggle" style="margin-top:12px"><span>Вес по номиналу</span><div class="sw" id="swByVal"></div></div>
+  <p class="rules" style="margin:-8px 0 10px;font-size:13px">Чем больше число на кубике, тем он тяжелее: двойка лёгкая, 2048 в разы тяжелее. Тяжёлые расталкивают лёгкие, лёгкие отскакивают от тяжёлых сильнее.</p>
+  <button class="pbtn sec small" id="bResetPhys">Сбросить</button>
   <h3>Градиент</h3>
   <div class="chips" id="gradChips">
     <button class="chip" data-grad="off">Выкл</button>
@@ -212,10 +226,29 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.6 · режим «по блату» · баклажан · сыпать при зажатии · 28.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.8 · настройка физики, «Как в Яндексе», вес по номиналу · 30.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
+<script>
+/* v5.7.1: if anything throws on a phone (no console there), show it on screen instead of a silently dead game */
+(function(){
+  var shown = 0;
+  function show(msg){
+    if (shown++ > 2) return;
+    try{
+      var d = document.createElement("div");
+      d.style.cssText = "position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#7a1020;color:#fff;font:12px/1.35 -apple-system,system-ui,sans-serif;padding:8px 10px;border-radius:10px;opacity:.95;word-break:break-all";
+      d.textContent = "⚠ " + String(msg).slice(0, 300) + "  (нажми, чтобы скрыть)";
+      d.onclick = function(){ d.remove(); };
+      (document.body || document.documentElement).appendChild(d);
+    }catch(_){}
+  }
+  window.addEventListener("error", function(e){ show((e && e.error && e.error.message) || (e && e.message) || "error"); });
+  window.addEventListener("unhandledrejection", function(e){ show((e && e.reason && e.reason.message) || e.reason || "promise error"); });
+  window.__cubesErr = show;
+})();
+</script>
 <script>
 /* matter-js 0.20.0 (c) Liam Brummitt and contributors — MIT License, http://brm.io/matter-js/ (inlined, unmodified) */
 /*!
@@ -230,7 +263,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
 (function(){
 "use strict";
 var M = window.Matter;
-var Engine=M.Engine, Bodies=M.Bodies, Body=M.Body, Composite=M.Composite, Events=M.Events;
+var Engine=M.Engine, Bodies=M.Bodies, Body=M.Body, Composite=M.Composite, Events=M.Events, Sleeping=M.Sleeping;
 
 function clamp(v,a,b){ return v<a?a:v>b?b:v; }
 /* ---------- constants (world units) ---------- */
@@ -250,6 +283,29 @@ var H, LINE_Y, SPAWN_Y;
 var BOUNCE = 0.55;           // landing rebound factor (hop velocity = impact speed * BOUNCE, capped)
 var HOP_MAX = 2.3;           // ~8-9 px (≈14% of a cube) first hop
 var pendingBounces = [];
+/* ---------- physics parameters (v5.7). v5.6 values in comments ---------- */
+var PHYS = {
+  gravity: 1.1,            // unchanged (fall across the board ~0.9 s was tuned deliberately)
+  density: 0.0016,         // same (all cubes are the same size, so mass does not vary by value)
+  friction: 0.55,          // v5.6: 0.45
+  frictionStatic: 1.0,     // v5.6: 0.6  (stacks grip and stop sliding)
+  frictionAir: 0.012,      // v5.6: 0.018 (less "underwater" drag)
+  restitution: 0.1,        // v5.6: 0.08 (+ scripted landing hop BOUNCE/HOP_MAX, unchanged)
+  slop: 0.03,              // v5.6: 0.05 (less visible overlap)
+  inertiaK: 1.35,          // v5.6: 1.5
+  floorFriction: 0.9,      // v5.6: 0.3
+  wallFriction: 0.08,      // v5.6: 0.3 (cubes slide down the side walls instead of sticking)
+  sleepSteps: 45,          // matter sleepThreshold in 120 Hz steps (~0.4 s of stillness) — v5.6: no sleeping
+  posIter: 24, velIter: 16, constraintIter: 3,   // v5.6: 14 / 10 / 2
+  hopLaw: "legacy",        // "legacy": scripted 2-hop landing (v5.6/5.7); "box2d": every hard landing rebounds by e * impact speed, like Yandex's Box2D
+  e: 0.3,                  // restitution of the box2d law
+  hopK: 1,                 // scripted landing hop strength (fades out as real restitution rises)
+  angDamp: 1,              // multiplier of the artificial angular damping in damp()
+  byValue: false,          // «Вес по номиналу»: density grows with log2(value)
+  maxSpeed: 22             // px/step cap against tunnelling
+};
+var LEGACY = /[?&]legacy\b/.test(location.search);     // index.html?legacy=1 -> exactly the v5.6 physics (for A/B on a device)
+if (LEGACY){ PHYS.friction=0.45; PHYS.frictionStatic=0.6; PHYS.frictionAir=0.018; PHYS.restitution=0.08; PHYS.slop=0.05; PHYS.inertiaK=1.5; PHYS.floorFriction=0.3; PHYS.wallFriction=0.3; PHYS.sleepSteps=60; PHYS.maxSpeed=1e9; PHYS.hopK=1; PHYS.hopLaw="legacy"; PHYS.angDamp=1; PHYS.byValue=false; PHYS.posIter=14; PHYS.velIter=10; PHYS.constraintIter=2; }
 var STEP = 1000/120;        // fixed physics step (ms)
 var LOSE_TIME = 2.0;        // seconds above line before game over
 var DROP_COOLDOWN = 420;    // ms before next cube can be dropped
@@ -336,6 +392,45 @@ var nowMs = 0;
 var prefs = lsGet(PREF,{});
 if (prefs.blat==null) prefs.blat=true; if (prefs.sound==null) prefs.sound=true; if (prefs.guide==null) prefs.guide=true;
 if (!PALETTES_OK(prefs.palette)) prefs.palette="classic"; if (!prefs.custom) prefs.custom={}; if (!prefs.theme) prefs.theme="night"; if (prefs.control!=="abs") prefs.control="rel"; if (["off","soft","vol"].indexOf(prefs.grad)<0) prefs.grad="soft"; if (prefs.spawn!=="last") prefs.spawn="center"; if (prefs.mergeDir!=="inertia") prefs.mergeDir="toward"; if (!(prefs.sens>=0.7 && prefs.sens<=2)) prefs.sens=1;
+/* ---------- v5.8: tunable physics (sliders + presets) ---------- */
+// «Спокойная» = the v5.7 feel. «Как в Яндексе» = numbers read from the Yandex build of «2048 кубики» (planck.js / Box2D:
+// cube 1x1 m, density 1, friction .3, restitution .3 on cubes and walls, gravity 15 m/s², step 1/120 s, no damping, no scripted hop).
+var PHYS_BASES = {
+  calm:   { staticK:1.818, floorMul:1.64, wallMul:0.145, air:0.012, inertiaK:1.35, angDamp:1.0, hop:1, law:"legacy" },
+  yandex: { staticK:1.0, floorMul:1.0,  wallMul:1.0,   air:0.0,   inertiaK:1.0,  angDamp:0.3, hop:1, law:"box2d" }
+};
+var PHYS_PRESETS = {
+  calm:   { base:"calm",   rest:0.10, weight:50, fric:0.55, grav:1.1, byValue:false },
+  yandex: { base:"yandex", rest:0.30, weight:50, fric:0.30, grav:0.9, byValue:false }
+};
+function physDefaults(){ return JSON.parse(JSON.stringify(PHYS_PRESETS.calm)); }
+function physNormalize(o){
+  var d = physDefaults(); if (!o || typeof o !== "object") return d;
+  if (!PHYS_BASES[o.base]) o.base = "calm";
+  var k = ["rest","weight","fric","grav"], lim = {rest:[0,1], weight:[0,100], fric:[0,1], grav:[0.5,1.6]};
+  for (var i=0;i<k.length;i++){ var v = +o[k[i]]; o[k[i]] = (isFinite(v) && o[k[i]]!=null && o[k[i]]!=="") ? clamp(v, lim[k[i]][0], lim[k[i]][1]) : d[k[i]]; }
+  o.byValue = !!o.byValue; return o;
+}
+prefs.phys = physNormalize(prefs.phys);
+function weightK(){ return Math.pow(2, (prefs.phys.weight - 50) / 25); }          // 0.25x .. 4x
+function valMassK(val){ return PHYS.byValue ? 1 + 0.5*(log2(val) - 1) : 1; }       // 2 -> 1x, 16 -> 2.5x, 128 -> 4x, 2048 -> 6x
+function computePhys(){
+  if (LEGACY) return;
+  var q = prefs.phys, B = PHYS_BASES[q.base], wk = weightK();
+  PHYS.gravity = q.grav; PHYS.restitution = q.rest;
+  PHYS.friction = q.fric; PHYS.frictionStatic = q.fric * B.staticK;
+  PHYS.frictionAir = B.air / wk;                       // drag acts on the mass: heavy cubes fall "straighter", light ones float
+  PHYS.density = 0.0016 * wk;
+  PHYS.floorFriction = q.fric * B.floorMul; PHYS.wallFriction = q.fric * B.wallMul;
+  PHYS.inertiaK = B.inertiaK; PHYS.angDamp = B.angDamp;
+  PHYS.hopLaw = B.law; PHYS.e = q.rest; PHYS.hopK = 1;
+  if (B.law === "legacy" && q.rest > 0.153) PHYS.hopLaw = "box2d";          // calm base: above ~15% the Box2D law takes over from the scripted 2-hop
+  if (PHYS.hopLaw === "box2d") PHYS.restitution = 0;                         // the whole rebound comes from e = slider (like Yandex's Box2D)
+  else PHYS.hopK = clamp(q.rest / 0.10, 0, 1);                               // legacy hop fades out towards 0% (real restitution = slider as well)
+  PHYS.byValue = q.byValue;
+}
+function physIsPreset(k){ var a = prefs.phys, b = PHYS_PRESETS[k]; return a.base===b.base && Math.abs(a.rest-b.rest)<0.004 && Math.abs(a.weight-b.weight)<0.5 && Math.abs(a.fric-b.fric)<0.004 && Math.abs(a.grav-b.grav)<0.004 && a.byValue===b.byValue; }
+computePhys();
 function PALETTES_OK(k){ return ["classic","calm","nordic","dusk","pastel","neon","mono","dark"].indexOf(k)>=0; }
 var moves = 0;
 var tutorialAlpha = 1;
@@ -343,26 +438,28 @@ var uid = 1;
 function newGid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 var gid = newGid(), lastEntryId = null;
 
+var floorBody = null, wallBodies = [];
 function makeEngine(){
-  engine = Engine.create({ positionIterations: 14, velocityIterations: 10 });
-  engine.gravity.y = 1.1;   // calmer, heavier fall (~0.9 s across the board)
+  // v5.7 realistic physics: more solver iterations (stacks don't sink/jitter), engine sleeping (settled stacks freeze)
+  engine = Engine.create({ positionIterations: PHYS.posIter, velocityIterations: PHYS.velIter, constraintIterations: PHYS.constraintIter, enableSleeping: !LEGACY });
+  engine.gravity.y = PHYS.gravity;
   world = engine.world;
-  var t = 200, opts = {isStatic:true, friction:0.3, restitution:0.05, label:"wall"};
-  Composite.add(world, [
-    Bodies.rectangle(W/2, H + t/2, W + t*2, t, opts),
-    Bodies.rectangle(-t/2, H/2 - 600, t, H + 1200, opts),
-    Bodies.rectangle(W + t/2, H/2 - 600, t, H + 1200, opts)
-  ]);
+  var t = 200, fopts = {isStatic:true, friction:PHYS.floorFriction, label:"wall"},
+      wopts = {isStatic:true, friction:PHYS.wallFriction, label:"wall"};
+  fopts.restitution = wopts.restitution = PHYS.restitution; fopts.frictionStatic = wopts.frictionStatic = PHYS.frictionStatic;
+  floorBody = Bodies.rectangle(W/2, H + t/2, W + t*2, t, fopts);
+  wallBodies = [Bodies.rectangle(-t/2, H/2 - 600, t, H + 1200, wopts), Bodies.rectangle(W + t/2, H/2 - 600, t, H + 1200, wopts)];
+  Composite.add(world, [floorBody, wallBodies[0], wallBodies[1]]);
   Events.on(engine, "collisionStart", onCollide);
   Events.on(engine, "collisionActive", onCollide);
 }
 
 function addCube(val, x, y, angle, vx, vy, av){
   var b = Bodies.rectangle(x, y, S-1, S-1, {
-    chamfer:{radius:5}, friction:0.45, frictionStatic:0.6, frictionAir:0.018,
-    restitution:0.08, density:0.0016, slop:0.05, label:"cube"
+    chamfer:{radius:5}, friction:PHYS.friction, frictionStatic:PHYS.frictionStatic, frictionAir:PHYS.frictionAir,
+    restitution:PHYS.restitution, density:PHYS.density * valMassK(val), slop:PHYS.slop, sleepThreshold:PHYS.sleepSteps, label:"cube"
   });
-  Body.setInertia(b, b.inertia * 1.5);   // a bit harder to spin -> less tumbling, but still tips off edges
+  Body.setInertia(b, b.inertia * PHYS.inertiaK);   // slightly harder to spin than a point-mass square, but still tips off edges
   b.val = val; b.born = nowMs; b.uid = uid++; b.pop = 0; b.merging = false; b.touched = false;
   if (angle) Body.setAngle(b, angle);
   if (vx || vy) Body.setVelocity(b, {x:vx||0, y:vy||0});
@@ -370,7 +467,19 @@ function addCube(val, x, y, angle, vx, vy, av){
   Composite.add(world, b); cubes.push(b);
   return b;
 }
+function applyPhys(){        // push the current PHYS to the running world (sliders / presets / reset)
+  computePhys(); if (!engine) return;
+  engine.gravity.y = blat.phase === "pull" ? 0 : PHYS.gravity;
+  for (var i=0;i<cubes.length;i++){ var b=cubes[i];
+    b.friction = PHYS.friction; b.frictionStatic = PHYS.frictionStatic; b.frictionAir = PHYS.frictionAir; b.restitution = PHYS.restitution;
+    Body.setDensity(b, PHYS.density * valMassK(b.val)); }
+  if (floorBody){ floorBody.friction = PHYS.floorFriction; floorBody.frictionStatic = PHYS.frictionStatic; floorBody.restitution = PHYS.restitution; }
+  for (i=0;i<wallBodies.length;i++){ wallBodies[i].friction = PHYS.wallFriction; wallBodies[i].frictionStatic = PHYS.frictionStatic; wallBodies[i].restitution = PHYS.restitution; }
+  wakeAll();
+}
+function wakeAll(){ for (var i=0;i<cubes.length;i++) if (cubes[i].isSleeping) Sleeping.set(cubes[i], false); }
 function removeCube(b){
+  wakeAll();   // a sleeper resting on the removed cube must fall, not hover
   Composite.remove(world, b);
   var i = cubes.indexOf(b); if (i>=0) cubes.splice(i,1);
 }
@@ -390,6 +499,7 @@ function spawnHeld(){
   // new cube appears at the top centre (default). If a finger is still down in relative mode, the drag simply
   // continues from the centre: we track finger deltas (lastFx), so nothing jumps.
   if (prefs.spawn !== "last") aimX = W/2;
+  if (typeof followHold === "function") followHold();   // hold-to-drop: the new cube appears under the finger, not in the centre
   if (blat.bonus > 0){ blat.bonus--; nextVal = blatVal(); nextBlat = true; }
   else { nextVal = randomVal(); nextBlat = false; }
 }
@@ -427,7 +537,12 @@ function onCollide(ev){
         var other = top===a ? b : a;
         if (top && top.velocity.y - (other.isStatic?0:other.velocity.y) > 0.6){
           var hop = 0;
-          if (vn > 2.2){ hop = Math.min(vn*BOUNCE, HOP_MAX); top.hopN = 1; top.hopV = hop; top.hopAt = nowMs; }   // first hop
+          if (PHYS.hopLaw === "box2d"){      // closing speed measured BEFORE the solver ate part of it (cached in tick())
+            var pa = a.pv || a.velocity, pb = b.pv || b.velocity, vnp = Math.abs((pa.x-pb.x)*nrm.x + (pa.y-pb.y)*nrm.y);
+            if (vnp > 1.0) hop = Math.min(vnp * PHYS.e, 9);
+          }       // Box2D: rebound = e * closing speed, only above ~1 cube/s
+          else if (PHYS.hopK < 0.02) hop = 0;
+          else if (vn > 2.2){ hop = Math.min(vn*BOUNCE, HOP_MAX) * PHYS.hopK; top.hopN = 1; top.hopV = hop; top.hopAt = nowMs; }   // first hop
           else if (top.hopN === 1 && nowMs - top.hopAt < 600){ hop = top.hopV*0.5; top.hopN = 2; }            // second, smaller hop
           if (hop > 0) pendingBounces.push([top, other, hop]);
         }
@@ -520,12 +635,14 @@ function pushBest(){
 }
 
 /* ---------- drop ---------- */
+var dropLog = [];   // world x of every drop (test hook)
 function canDrop(){ return !gameOver && !blat.phase && held && nowMs - lastDropAt > DROP_COOLDOWN && nowMs - held.born > 120; }
 function clampAim(x){ return clamp(x, S/2 + 2, W - S/2 - 2); }
 function drop(){
   if (!canDrop()) return false;
   undoSnap = snapshot();
   var b = addCube(held.val, clampAim(aimX), SPAWN_Y, 0, 0, 1.5, 0);
+  dropLog.push(clampAim(aimX)); if (dropLog.length > 200) dropLog.shift();
   b.born = nowMs - 100; b.dropped = true; b.blat = !!held.blat;
   held = null; lastDropAt = nowMs; moves++; combo = 0;
   sfxDrop();
@@ -815,14 +932,14 @@ function damp(){
     var b=cubes[i], av=b.angularVelocity;
     var q = b.angle % (Math.PI/2); if (q < 0) q += Math.PI/2;
     var off = Math.min(q, Math.PI/2 - q);           // tilt away from lying flat
-    if (av !== 0) Body.setAngularVelocity(b, av * (b.touched ? (off < 0.06 ? 0.975 : 0.992) : 0.99));
+    if (av !== 0){ var af = b.touched ? (off < 0.06 ? 0.975 : 0.992) : 0.99; Body.setAngularVelocity(b, av * (1 - (1 - af) * PHYS.angDamp)); }
     if (b.touched && off < 0.05 && b.speed < 0.12 && Math.abs(b.angularVelocity) < 0.004){
       Body.setVelocity(b, {x:b.velocity.x*0.6, y:b.velocity.y*0.6});
       Body.setAngularVelocity(b, b.angularVelocity*0.5);
     }
   }
 }
-function setGravity(g){ if (engine) engine.gravity.y = g; }
+function setGravity(g){ if (engine){ engine.gravity.y = g; wakeAll(); } }
 function magnetPull(){
   // every cube is dragged toward the nearest cube of the same value (they meet and merge by the normal rules);
   // cubes with no twin are drawn to the middle of the pile
@@ -841,14 +958,20 @@ function magnetPull(){
 }
 function tick(dtMs){
   // physics with fixed step
-  if (blat.phase === "pull") magnetPull();
+  if (blat.phase){ wakeAll(); if (blat.phase === "pull") magnetPull(); }
   damp();
+  for (var si=0; si<cubes.length; si++){ var sb=cubes[si]; if (sb.speed > PHYS.maxSpeed) Body.setVelocity(sb, {x:sb.velocity.x*PHYS.maxSpeed/sb.speed, y:sb.velocity.y*PHYS.maxSpeed/sb.speed}); }
   for (var pi=0; pi<cubes.length; pi++){ var cb=cubes[pi]; cb.pv = {x:cb.velocity.x, y:cb.velocity.y}; }
-  Engine.update(engine, STEP);
+  try{ Engine.update(engine, STEP); }
+  catch(err){   // never let a solver exception freeze the whole game: drop sleeping (the riskiest v5.7 feature) and carry on
+    if (engine.enableSleeping){ engine.enableSleeping = false; wakeAll(); }
+    if (window.__cubesErr) window.__cubesErr("physics: " + (err && err.message));
+  }
   for (var i=0;i<pendingBounces.length;i++){
     var pb=pendingBounces[i], tb=pb[0], ob=pb[1];
     if (cubes.indexOf(tb)<0 || tb.merging) continue;
     var hop = pb[2], base = ob.isStatic ? 0 : Math.min(0, ob.velocity.y);
+    if (PHYS.hopLaw === "box2d"){ Body.setVelocity(tb, {x:tb.velocity.x*0.85, y: base - hop}); continue; }   // spin untouched: cubes tumble like in Box2D
     Body.setVelocity(tb, {x:tb.velocity.x*0.6, y: base - hop});
     // a real cube that lands flat hops flat: straighten small tilts during the short airtime
     var q = tb.angle % (Math.PI/2); if (q < 0) q += Math.PI/2; var tilt = q < Math.PI/4 ? q : q - Math.PI/2;
@@ -889,7 +1012,8 @@ function toWorldX(clientX){ var r=cv.getBoundingClientRect(); return (clientX - 
 var activePointer = null, ptrType = "", lastFx = 0, startFx = 0, moved = false;
 var DEADZONE = 6;   // px of finger travel ignored at start, so a tap never nudges the cube
 function isUiTarget(t){ return !!(t && t.closest && t.closest("button, input, label, .overlay, .btn, .chip, .sw")); }
-function relativeMode(e){ return e.pointerType !== "mouse" && prefs.control !== "abs"; }
+// hold-to-drop («Сыпать при зажатии») always aims ABSOLUTELY: the cube is exactly under the finger, so every auto drop lands where the finger is now
+function relativeMode(e){ return e.pointerType !== "mouse" && prefs.control !== "abs" && !autoDrop; }
 document.addEventListener("pointerdown", function(e){
   if (isUiTarget(e.target) || anyOverlay()) return;
   if (activePointer !== null) return;          // ignore second finger
@@ -928,8 +1052,11 @@ function holdInField(){
   var r = cv.getBoundingClientRect();
   return holdX >= r.left && holdX <= r.right && holdY >= r.top && holdY <= r.bottom;
 }
+// live finger x: the aim/preview cube and every auto-dropped cube use the CURRENT finger position (clamped to the field)
+function followHold(){ if (autoDrop && aiming && activePointer !== null && !gameOver) aimX = clampAim(toWorldX(holdX)); }
 function autoDropStep(){
   if (!autoDrop || !aiming || activePointer === null || gameOver || blat.phase || anyOverlay()) return;
+  followHold();      // re-aim every frame: spawnHeld() resets aimX to the centre after each drop, the finger must win
   var t = performance.now();
   if (t - holdT0 < AUTO_HOLD_MS || t - lastAutoAt < AUTO_GAP_MS) return;
   if (!holdInField()) return;                     // finger/cursor left the field: no drops until it is back
@@ -946,7 +1073,12 @@ document.addEventListener("pointerup", function(e){ endPointer(e, true); });
 document.addEventListener("pointercancel", function(e){ endPointer(e, false); });
 document.addEventListener("contextmenu", function(e){ if (!isUiTarget(e.target)) e.preventDefault(); });
 // block page scroll / zoom gestures on iOS
-document.addEventListener("touchmove", function(e){ if (e.target.closest && e.target.closest(".scroll")) return; e.preventDefault(); }, {passive:false});
+document.addEventListener("touchmove", function(e){
+  if (e.target.closest && e.target.closest(".scroll")) return;
+  e.preventDefault();
+  // fallback for browsers that stop/skip pointermove during touch: keep the hold position live from touch events too
+  if (aiming && activePointer !== null && ptrType === "touch" && e.touches && e.touches[0]){ holdX = e.touches[0].clientX; holdY = e.touches[0].clientY; if (!relativeMode({pointerType:"touch"})) followHold(); }
+}, {passive:false});
 document.addEventListener("touchstart", function(e){ if (!isUiTarget(e.target) && !anyOverlay()) e.preventDefault(); }, {passive:false});
 document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
 document.addEventListener("dblclick", function(e){ e.preventDefault(); });
@@ -991,7 +1123,7 @@ function blatUi(){
   $("lblBest").textContent = blat.used ? "БЛАТ-РЕКОРД" : "РЕКОРД";
 }
 function blatAbort(){          // drop every trace of a running call: phase, magnet, gravity, toast, timers
-  blat.phase = ""; blat.t = 0; blat.step = 0; blat.total = 0; setGravity(1.1);
+  blat.phase = ""; blat.t = 0; blat.step = 0; blat.total = 0; setGravity(PHYS.gravity);
   for (var i=0;i<cubes.length;i++) cubes[i]._tx = null;
   clearTimeout(toastTO); hideToast();
 }
@@ -1018,7 +1150,7 @@ function blatUpdate(dt){
     if (blat.t > BLAT_TALK*2){ blat.phase = "pull"; blat.t = 0; blat.step = 0; setGravity(0); showToast("ПО БЛАТУ", "🧲 Всё притянется. Свои люди!", false); sfxMagnet(); }
   } else if (blat.phase === "pull"){
     if (blat.t > BLAT_PULL){
-      blat.phase = "merge"; blat.t = 0; setGravity(1.1);
+      blat.phase = "merge"; blat.t = 0; setGravity(PHYS.gravity);
       for (var i=0;i<cubes.length;i++){ var c=cubes[i]; c._tx = null; Body.setVelocity(c, {x:c.velocity.x*0.3, y:c.velocity.y*0.3}); }
     }
   } else if (blat.phase === "merge"){
@@ -1235,7 +1367,27 @@ function syncGrad(){ var gs=document.querySelectorAll("#gradChips .chip"); for (
   for (var i=0;i<cs.length;i++) cs[i].onclick=function(){ prefs.control=this.dataset.ctrl; lsSet(PREF,prefs); syncCtrl(); };
   $("sens").oninput=function(){ prefs.sens=Math.round(+this.value*10)/10; lsSet(PREF,prefs); syncCtrl(); };
 })();
-function syncPrefs(){ $("swBlat").classList.toggle("on",!!prefs.blat); blatUi(); syncCtrl(); syncGrad(); syncSpawn(); syncMerge(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); $("swAuto").classList.toggle("on",!!autoDrop); }
+function physSave(){ prefs.phys = physNormalize(prefs.phys); lsSet(PREF,prefs); applyPhys(); syncPhys(); }
+function syncPhys(){
+  var q = prefs.phys, cs = document.querySelectorAll("#physChips .chip");
+  for (var i=0;i<cs.length;i++) cs[i].classList.toggle("on", physIsPreset(cs[i].dataset.phys));
+  $("phRest").value = Math.round(q.rest*100); $("phRestV").textContent = Math.round(q.rest*100) + "%";
+  $("phWeight").value = Math.round(q.weight); $("phWeightV").textContent = weightK().toFixed(2).replace(/0$/,"") + "×";
+  $("phFric").value = Math.round(q.fric*100); $("phFricV").textContent = Math.round(q.fric*100) + "%";
+  $("phGrav").value = Math.round(q.grav*100); $("phGravV").textContent = q.grav.toFixed(2).replace(/0$/,"") + "×";
+  $("swByVal").classList.toggle("on", !!q.byValue);
+}
+(function(){
+  var cs = document.querySelectorAll("#physChips .chip");
+  for (var i=0;i<cs.length;i++) cs[i].onclick = function(){ prefs.phys = JSON.parse(JSON.stringify(PHYS_PRESETS[this.dataset.phys])); physSave(); };
+  $("phRest").oninput   = function(){ prefs.phys.rest = +this.value/100; physSave(); };
+  $("phWeight").oninput = function(){ prefs.phys.weight = +this.value; physSave(); };
+  $("phFric").oninput   = function(){ prefs.phys.fric = +this.value/100; physSave(); };
+  $("phGrav").oninput   = function(){ prefs.phys.grav = +this.value/100; physSave(); };
+  $("swByVal").onclick  = function(){ prefs.phys.byValue = !prefs.phys.byValue; physSave(); };
+  $("bResetPhys").onclick = function(){ prefs.phys = physDefaults(); physSave(); };
+})();
+function syncPrefs(){ syncPhys(); $("swBlat").classList.toggle("on",!!prefs.blat); blatUi(); syncCtrl(); syncGrad(); syncSpawn(); syncMerge(); $("swSound").classList.toggle("on",!!prefs.sound); $("swGuide").classList.toggle("on",!!prefs.guide); $("swAuto").classList.toggle("on",!!autoDrop); }
 $("swSound").onclick = function(){ prefs.sound=!prefs.sound; lsSet(PREF,prefs); syncPrefs(); audioUnlock(); };
 $("swBlat").onclick = function(){ prefs.blat=!prefs.blat; lsSet(PREF,prefs); syncPrefs(); };
 $("swAuto").onclick = function(){ autoDrop=!autoDrop; lsSet(AUTODROP,autoDrop); holdDrops=0; syncPrefs(); };
@@ -1312,6 +1464,7 @@ window.__cubes = {
   bodies: function(){ return cubes.map(function(b){ return {v:b.val,y:b.position.y,vy:b.velocity.y,av:b.angularVelocity,a:b.angle,touched:b.touched}; }); },
   aimScreenX: function(){ var r=cv.getBoundingClientRect(); return r.left + offX + clampAim(aimX)*scale; },
   aimWorld: function(){ return aimX; },
+  dropXs: function(){ var r=cv.getBoundingClientRect(); return dropLog.map(function(x){ return r.left + offX + x*scale; }); },
   setBounce: function(v){ BOUNCE=v; },
   launch: function(v,x01,yFromBottom,vx,vy){ var b=addCube(v, clampAim(x01*W), H - S/2 - (yFromBottom||0)*S, 0, vx||0, vy||0, 0); b.touched=true; b.born=nowMs-1000; return true; },
   lastMerge: function(){ return lastMerge; },
@@ -1330,6 +1483,33 @@ window.__cubes = {
   rating: function(){ return {list:ratingLoad(), name:lsGet(NAME,null), gid:gid}; },
   setScore: function(n){ score = n; updateHud(); },
   blatVal: function(){ return blatVal(); },
+  // physics sanity probe: max penetration depth between cubes / floor / walls, max speed, sleepers
+  phys: function(){
+    var maxDepth=0, maxSpeed=0, sleeping=0, i, k, cols, all=world.bodies;
+    for (i=0;i<cubes.length;i++){
+      var b=cubes[i]; if (b.speed>maxSpeed) maxSpeed=b.speed; if (b.isSleeping) sleeping++;
+      cols = M.Query.collides(b, all.filter(function(o){ return o!==b && (o.isStatic || cubes.indexOf(o)>i); }));
+      for (k=0;k<cols.length;k++) if (cols[k].depth>maxDepth) maxDepth=cols[k].depth;
+    }
+    return {n:cubes.length, maxDepth:maxDepth, maxSpeed:maxSpeed, sleeping:sleeping, maxAngV:Math.max.apply(null,[0].concat(cubes.map(function(b){return Math.abs(b.angularVelocity);}))),
+      pos:cubes.map(function(b){return [b.position.x,b.position.y,b.angle,b.val];})};
+  },
+  // cubes asleep with nothing under them (would hang in the air): [] when the engine behaves
+  floaters: function(){
+    var out=[]; for (var i=0;i<cubes.length;i++){ var b=cubes[i]; if (!b.isSleeping) continue;
+      var ghost = {bounds:{min:{x:b.bounds.min.x,y:b.bounds.min.y+3},max:{x:b.bounds.max.x,y:b.bounds.max.y+3}}};
+      var sup=false; for (var j=0;j<world.bodies.length;j++){ var o=world.bodies[j]; if (o===b) continue;
+        if (o.bounds.max.x<=b.bounds.min.x+2||o.bounds.min.x>=b.bounds.max.x-2) continue;
+        if (o.bounds.min.y<=b.bounds.max.y+3 && o.bounds.max.y>=b.bounds.max.y-1 && o.bounds.min.y>b.bounds.min.y){ sup=true; break; } }
+      if (!sup) out.push([Math.round(b.position.x),Math.round(b.position.y)]); }
+    return out;
+  },
+  physState: function(){ return {prefs:JSON.parse(JSON.stringify(prefs.phys)), PHYS:JSON.parse(JSON.stringify(PHYS)), engineGravity:engine.gravity.y, preset:physIsPreset('calm')?'calm':physIsPreset('yandex')?'yandex':'custom'}; },
+  masses: function(){ return cubes.map(function(b){ return {v:b.val, m:b.mass, inertia:b.inertia, density:b.density}; }); },
+  setPhys: function(o){ for (var k in o) prefs.phys[k]=o[k]; prefs.phys=physNormalize(prefs.phys); lsSet(PREF,prefs); applyPhys(); },
+  hopOff: function(v){ PHYS.hopK = v; },
+  setPhysPreset: function(k){ prefs.phys = JSON.parse(JSON.stringify(PHYS_PRESETS[k])); lsSet(PREF,prefs); applyPhys(); },
+  engineInfo: function(){ return {sleeping:engine.enableSleeping, legacy:LEGACY, posIter:engine.positionIterations, velIter:engine.velocityIterations, nowMs:nowMs}; },
   world: {W:W,H:H,S:S,LINE_Y:LINE_Y}
 };
 })();
