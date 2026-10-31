@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Кубы 2048">
 <meta name="theme-color" content="#17142a">
-<meta name="cubes-build" content="v5.8">
+<meta name="cubes-build" content="v5.8.1">
 <meta name="format-detection" content="telephone=no">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:">
 <title>Кубы 2048</title>
@@ -226,7 +226,7 @@ canvas#stage{position:absolute;inset:0;width:100%;height:100%;display:block;touc
   <button class="pbtn sec small" id="bResetCol">Сбросить свои цвета</button>
   <h3>Фон</h3>
   <div class="chips" id="themeChips"></div>
-  <div class="ver" id="verLabel">Версия v5.8 · настройка физики, «Как в Яндексе», вес по номиналу · 30.10.2026</div>
+  <div class="ver" id="verLabel">Версия v5.8.1 · фикс: после «Ещё раз» палец снова работает · 31.10.2026</div>
   <div class="row sticky"><button class="pbtn" id="mClose">Продолжить</button></div>
 </div></div>
 
@@ -671,6 +671,7 @@ function restore(s, keepBlat){
   gid = s.gid || newGid();
   blatAbort(); blat.grace = 0; pendingMerges.length = 0;
   gameOver = false; dangerT = 0; combo = 0;
+  if (typeof pointerReset === "function") pointerReset();   // input state never survives a restart (v5.8.1)
   updateHud();
 }
 function save(){
@@ -1016,7 +1017,10 @@ function isUiTarget(t){ return !!(t && t.closest && t.closest("button, input, la
 function relativeMode(e){ return e.pointerType !== "mouse" && prefs.control !== "abs" && !autoDrop; }
 document.addEventListener("pointerdown", function(e){
   if (isUiTarget(e.target) || anyOverlay()) return;
-  if (activePointer !== null) return;          // ignore second finger
+  if (activePointer !== null){
+    if (aiming && !e.isPrimary) return;        // ignore second finger while the first is really aiming
+    pointerReset();                            // stale pointer (its pointerup was swallowed by game over / call / overlay): the new touch wins
+  }
   if (e.pointerType === "mouse" && e.button !== 0) return;
   audioUnlock();
   if (gameOver) return;
@@ -1062,15 +1066,20 @@ function autoDropStep(){
   if (!holdInField()) return;                     // finger/cursor left the field: no drops until it is back
   if (drop()){ lastAutoAt = t; holdDrops++; }     // drop() enforces all normal rules (cooldown, next cube ready)
 }
+function pointerReset(){ aiming = false; activePointer = null; moved = false; holdDrops = 0; }
 function endPointer(e, doDrop){
-  if (!aiming || e.pointerId !== activePointer) return;
-  aiming = false; activePointer = null;
+  if (e.pointerId !== activePointer) return;
+  var wasAiming = aiming;
+  aiming = false; activePointer = null; moved = false;   // ALWAYS release, even if game over / a call already stopped the aiming (v5.8.1 fix)
+  if (!wasAiming){ holdDrops = 0; return; }
   if (!relativeMode(e)) aimX = clampAim(toWorldX(e.clientX));
   var auto = autoDrop && holdDrops > 0; holdDrops = 0;   // hold already dropped cubes: the release must not add one more
   if (doDrop && !anyOverlay() && !auto) drop();
 }
 document.addEventListener("pointerup", function(e){ endPointer(e, true); });
 document.addEventListener("pointercancel", function(e){ endPointer(e, false); });
+window.addEventListener("blur", pointerReset);
+document.addEventListener("visibilitychange", function(){ if (document.hidden) pointerReset(); });
 document.addEventListener("contextmenu", function(e){ if (!isUiTarget(e.target)) e.preventDefault(); });
 // block page scroll / zoom gestures on iOS
 document.addEventListener("touchmove", function(e){
